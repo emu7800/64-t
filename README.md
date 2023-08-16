@@ -16,7 +16,7 @@ I have long had the original cassette but could never find the executable online
 So forty years later, I figured I probably should reverse engineer this and finally solve the
 smooth scrolling mystery. And perhaps, others might have interest as well.
 
-Enjoy! Feel free to drop me a line. It would be interesting if this resonates with anyone. :)
+Enjoy! Feel free to drop me a line. It would be interesting if this resonates with anybody. :)
 
 ### Contents
 
