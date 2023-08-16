@@ -187,11 +187,11 @@ CLALL    = $ffe7 ; Close all logical I/O files
 
            org $0801
 
-           ; 0 SYS2304:REM   * * * 64 TERMINAL * * *
+           ; 0 SYS2304:REM   * * 64 TERMINAL * *
            dc.w endofbootstrapper
            hex 00 00
            hex 9e 32 33 30 34 3a 8f
-           dc "   * * * 64 TERMINAL * * *"
+           dc "   * * 64 TERMINAL * *"
            hex 00
 endofbootstrapper:
            hex 00 00
