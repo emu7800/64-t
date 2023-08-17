@@ -48,7 +48,6 @@ pal_baud_300            = pal_clock_freq/ 300/2 - 100
 
 
 stop_char               = 3     ; PETSCII stop
-disable_logoshift       = 8     ; PETSCII disable keyboard LOGO+SHIFT combination
 BS                      = 8     ; ASCII backspace
 CR                      = 13    ; PETSCII/ASCII carriage return
 toggle_charset          = 14    ; PETSCII toggle character se
@@ -207,8 +206,6 @@ start:
            subroutine
            jsr clear_both_screens
            lda #toggle_charset
-           jsr CHROUT
-           lda #disable_logoshift
            jsr CHROUT
            lda #>sprite_data_base_addr
            sta MEMSIZ2+1
@@ -468,16 +465,6 @@ output_char_to_modem_with_dpx_echo:
            subroutine
            pha
 
-           ; Convert ASCII uppercase character to PETSCII uppercase only for local character echo (half duplex)
-           bit charset_flag
-           bpl .next1
-
-           cmp #"A"
-           bcc .next1
-           cmp #"Z"+1
-           bcs .next1
-           ora #$80
-.next1:
            bit dpx_flag
            bpl output_char_to_modem
            jsr output_char_to_screen
@@ -495,24 +482,15 @@ output_char_to_modem:
            cmp #DEL
            beq .done
            bit charset_flag
-           bpl .next1
+           bmi .done
 
-           ; Convert PETSCII uppercase only character to ASCII upper case
-           cmp #$c1               ; PETSCII uppercase only A
-           bcc .next2
-           cmp #$db               ; PETSCII uppercase only Z + 1
-           bcs .next2
+.convert_to_ascii:
            and #$7f
-           jmp .next2
-
-.next1:    ; Convert to ASCII
            cmp #"A"
-           bcc .next2
+           bcc .done
            cmp #"Z"+1
            bcs .done
            adc #32
-.next2
-           and #$7f
 .done:
            jsr CHROUT
 
@@ -530,36 +508,40 @@ get_char_from_modem:
            jmp main
 
 .handle_char:
-           and #$7f
-           cmp #BS
-           beq .output_byte_then_2main
-           cmp #DEL
-           beq .output_byte_then_2main
            cmp #CR
            beq .handle_cr
+           bit charset_flag
+           bmi .handle_petscii_char
+.handle_ascii_char:
+           and #$7f
+           cmp #BS
+           beq .output_byte_to_screen_then_done
+           cmp #DEL
+           beq .output_byte_to_screen_then_done
+           bne .handle_char2
+.handle_petscii_char:
+           cmp #delete
+           beq .output_byte_to_screen_then_done
+.handle_char2:
            cmp #" "
            bcs .handle_printable_char
            jmp main
-
 .handle_cr:
            bit fmt_flag
-           bmi .output_cr_then_2main
+           bmi .output_cr_then_done
            lda #0                 ; set discard spaces
            sta fmt_flag
-.output_cr_then_2main:
+.output_cr_then_done:
            lda #CR
-           bne .output_byte_then_2main
-
+           bne .output_byte_to_screen_then_done
 .handle_printable_char:
            bne .handle_nonspace_printable_char
-
            ; char is a space, discard if 'discard spaces' is on
            ldx fmt_flag
            beq get_char_from_modem
-
 .handle_nonspace_printable_char:
            bit fmt_flag
-           bmi .convert_2petscii
+           bmi .convert_and_output_byte_to_screen
            cmp #" "
            bne .set_nonspace_seen_fmt_flag
 .clear_nonspace_seen_fmt_flag:
@@ -568,18 +550,20 @@ get_char_from_modem:
 .set_nonspace_seen_fmt_flag:
            ldx #1                 ; set dont discard spaces
            stx fmt_flag
-.convert_2petscii:
+.convert_and_output_byte_to_screen:
+           bit charset_flag
+           bmi .output_byte_to_screen_then_done
            cmp #"a"
-           bcc .convert_2petscii2
+           bcc .next
            sbc #32
-           bne .output_byte_then_2main
-.convert_2petscii2:
+           bne .output_byte_to_screen_then_done
+.next:
            cmp #"A"
-           bcc .output_byte_then_2main
+           bcc .output_byte_to_screen_then_done
            cmp #"Z"+1
-           bcs .output_byte_then_2main
+           bcs .output_byte_to_screen_then_done
            adc #32
-.output_byte_then_2main:
+.output_byte_to_screen_then_done:
            jsr output_char_to_screen
            jmp main
 
@@ -597,8 +581,8 @@ dump_rcv_buffer_to_printer:
            jsr CHKOUT
            jsr READST
            bpl .status_ok
-           ldy #<err_printer_offline_message
-           lda #>err_printer_offline_message
+           ldy #<.err_printer_offline_message
+           lda #>.err_printer_offline_message
            jsr output_string_to_screen
            jmp .done
 
@@ -642,6 +626,10 @@ dump_rcv_buffer_to_printer:
            sta SCROLY
            jmp main
 
+.err_printer_offline_message:
+           hex 0d
+           dc "* * * error: pRINTER oFF-lINE * * *"
+           hex 0d 00
 
 clear_both_screens:
            subroutine
@@ -962,6 +950,11 @@ print_title_message_to_screen:
            jsr delay_onethirdsec
            jsr delay_onethirdsec
            jsr delay_onethirdsec
+           jsr delay_onethirdsec
+           jsr delay_onethirdsec
+           jsr delay_onethirdsec
+           jsr delay_onethirdsec
+           jsr delay_onethirdsec
            rts
 
 .title_message:
@@ -980,11 +973,6 @@ print_title_message_to_screen:
            dc "                C. 2023"
            hex 0d 0d 0d 0d 0d 0d
            hex 00
-
-err_printer_offline_message:
-           hex 0d
-           dc "* * * error: pRINTER oFF-lINE * * *"
-           hex 0d 00
 
 
 accept_presets_menu:
@@ -1189,6 +1177,9 @@ accept_presets_menu:
            lda #$ff               ; turn on all sprites
            sta SPENA
            jsr output_cursor_home_and_cursor_down
+           ldy #<.help_text
+           lda #>.help_text
+           jsr output_string_to_screen
            rts
 .presets:
            dc "***PRESETS***"
@@ -1269,6 +1260,29 @@ accept_presets_menu:
            hex 0d 0d
            dc "SELECTION? "
            dc 0
+.help_text:
+           hex 0d
+           dc "f1/f2  rEcEIvE BUFFER TOGGLE          "
+           hex 0d
+           dc "f3/f4  hALF dUpLEx TOGGLE             "
+           hex 0d
+           dc "f5/f6  fORmAt TOGGLE                  "
+           hex 0d
+           dc "f7     rEVIEW rcv BUFFER, SPACE PAUSES"
+           hex 0d
+           dc "         f7 AGAIN STOPS REVIEW        "
+           hex 0d
+           dc "f8     dUMP rcv BUFFER TO PRINTER,    "
+           hex 0d
+           dc "         runstop STOPS PRINTING       "
+           hex 0d
+           dc "runstop + restore   rESET PROGRAM     "
+           hex 0d
+           dc "ctrl + runstop      tOGGLES tXd LINE  "
+           hex 0d
+           dc "f1 + restore        cLEAR rcv BUFFER  "
+           hex 0d 0d
+           hex 00
 
 charset_flag:
            dc 0                   ; bit7: 0=ascii, 1=petscii
