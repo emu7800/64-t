@@ -196,7 +196,7 @@ CLALL    = $ffe7 ; Close all logical I/O files
 endofbootstrapper:
            hex 00 00
 
-           ds.b $0900-*, 0
+           ds.b start-*, 0
 
            org $0900
 start:
@@ -777,7 +777,7 @@ fine_scroll_one_line:
            dey
            bpl .loop1_hi
 
-screen_copy_offset = (23-1)*40 - 3*$100
+screen_copy_offset = 22*40 - 3*$100
 
            ldy #0
 .loop2_hi:
