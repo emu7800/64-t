@@ -17,17 +17,14 @@
 ;
 ; Keys/functions:
 ;
-; - F1/F2              RCV: Toggle receive buffering (off/on)
-; - F3/F4              DPX: Toggle half duplex (off/on)
-; - F5/F6              FMT: Toggle format mode, eliminates extra spaces when on (off/on)
-; - F7                 Review feature, copies receive buffer to screen. SPACE pauses, F7 again quits
-; - F8                 Dumps receive buffer to printer, RUNSTOP quits printing
-; - RUNSTOP + RESTORE  Resets to the Accept Presets page
-; - CTRL + RUNSTOP     Toggles the TxD line (not sure why useful)
-; - F1 + RESTORE       Clears receive buffer
+; - F1/F2   RCV: Toggle receive buffering (off/on)
+; - F3/F4   DPX: Toggle half duplex (off/on)
+; - F6      Resets to the Accept Presets page, clears receive buffer
+; - F7      Review feature, copies receive buffer to screen. SPACE pauses, F7 again quits
+; - F8      Dumps receive buffer to printer, RUNSTOP quits printing
 ;
 ;
-; Original reverse engineering and next generation improvements
+; Reverse engineering and Next Generation improvements
 ; by Mike Murphy (mike@emu7800.net), circa 2023.
 ; Intended for preservation and educational purposes only.
 ;
@@ -77,12 +74,13 @@ ntsc_flag               = $21   ; bit7: 0=b/w, 1=color
 FREETOP                 = $33   ; Pointer to the Bottom of the String Text Storage Area
 FRESPC                  = $35   ; Temporary Pointer for Strings
 MEMSIZ1                 = $37   ; Pointer to the Highest Address Used by BASIC
-fmt_flag                = $5e   ; bit7: 1=off; bit0-7: 0=on: discard spaces, 1=on: dont discard spaces
 last_keycode            = $5d
+show_cursor_flag        = $5e   ; bit7: 0=dont show cursor, 1=show cursor
 serial_config           = $5f   ; Four (4) byte string for serial port configuration
-rs232_txd_flag          = $63   ; bit7: 1=toggled txd
+screen_select_flag      = $63   ; bit7: 0=low screen, 1=high screen
 rcv_flag                = $69   ; bit7: 0=off, 1=on
 rcv_buffer_ptr          = $6a
+charset_flag            = $70   ; bit7: 0=ascii, 1=petscii
 rcv_buffer_ptr_lo       = rcv_buffer_ptr
 rcv_buffer_ptr_hi       = rcv_buffer_ptr+1
 ptr                     = $6c
@@ -90,7 +88,6 @@ ptr_lo                  = ptr
 ptr_hi                  = ptr+1
 rcv_buffer_full_flag    = $6e   ; bit7: 0=not full, 1=full
 rcv_notadded_flag       = $6f   ; bit7: added to buffer since rcv on: 0=byte added, 1=byte not added
-restore_key_flag        = $70   ; bit7: 0=not pressed, 1=pressed
 NDX                     = $c6   ; Number of Characters in Keyboard Buffer (Queue)
 SFDX                    = $cb   ; Matrix Coordinate of Current Key Pressed
 PNTR                    = $d3   ; Cursor column on current logical line (0-79)
@@ -105,10 +102,9 @@ NMINV                   = $0318 ; Vector: Non-Maskable Interrupt
 sprite_data_base_addr   = $2000
 offset_rcv  = 0  ; RCF sprite
 offset_dpx  = 1  ; DPX sprite
-offset_fmt  = 2  ; FMT sprite
-offset_64t  = 3  ; 64T sprite
-offset_ermi = 4  ; ERMI sprite
-offset_nal  = 5  ; NAL sprite
+offset_64t  = 2  ; 64T sprite
+offset_ermi = 3  ; ERMI sprite
+offset_nal  = 4  ; NAL sprite
 
 
 ; Receive buffer size: $6000 bytes => 24,576 bytes => 24K
@@ -199,7 +195,7 @@ CLALL    = $ffe7 ; Close all logical I/O files
 endofbootstrapper:
            hex 00 00
 
-           ds.b $0900-*, 0
+           ds.b start-*, 0
 
            org $0900
 start:
@@ -238,9 +234,9 @@ start:
            jsr print_title_message_to_screen
 reset:
            subroutine
+           lda #1                  ; white
+           sta COLOR
            jsr init_sprites
-           lda #0
-           sta restore_key_flag
            lda #$80                ; show cursor
            sta show_cursor_flag
            jsr accept_presets_menu
@@ -248,112 +244,47 @@ reset:
            jsr CLALL
            lda #$80
            sta rcv_notadded_flag
-           lda #0
-           sta rs232_txd_flag
            jsr open_printer_device
            jsr open_modem_device
 main:
            subroutine
            jsr CLRCHN
 
-           jsr USKINDIC
-           jsr STOP
-           bne .get_byte_from_keyboard
-
-           ; runstop already pressed, check for restore
-           bit restore_key_flag
-           bmi reset
-
-           ; runstop already pressed, check for CTRL
-           jsr $eb1e ; somewhere in the middle of KEYLOG:($028f)=$eadd, evaluate shift functions
-           jsr USKINDIC
-           lda SHFLAG
-           cmp #4                 ; Is CTRL pressed?
-           beq .toggle_rs232_txd_and_set_txd_flag
-
 .get_byte_from_keyboard:
            jsr GETIN
-           beq .check_for_ctrlrunstop
+           beq main
            cmp #stop_char
-           beq .check_for_ctrlrunstop
-           bit restore_key_flag
-           bpl handle_char_from_kbd
-
-           ; restore pressed
-           pha
-           jsr USKINDIC
-           jsr STOP
-           beq .handle_runstop_restore
-
-           pla
-           jmp handle_char_from_kbd
-
-           ; runstop pressed
-.handle_runstop_restore:
-           pla
-           jmp reset
-
-.check_for_ctrlrunstop:
-           lda SHFLAG
-           cmp #4                 ; Is CTRL pressed?
-           bne .clear_last_keycode_then_get_char_from_modem
-
-           ; CTRL pressed
-           jsr USKINDIC
-           jsr STOP
-           bne .get_current_key_pressed ; runstop not pressed
-
-           ; CTRL+runstop pressed, toggle RS232 TXD
-.toggle_rs232_txd_and_set_txd_flag:
-           jsr toggle_rs232_txd
-           lda #$80
-           sta rs232_txd_flag
-           bne main
+           beq main
 
 .get_current_key_pressed:
            ldx SFDX
            cpx #64                ; no key pressed
-           beq .go_get_char_from_modem
+           beq .done
            lda $eb81,x            ; keyboard decode table: keyboard1 unshifted
            and #$1f
            cmp last_keycode
-           beq .go_get_char_from_modem
+           beq .done
            sta last_keycode
            pha
            jmp output_char_to_modem
-.clear_last_keycode_then_get_char_from_modem:
-           lda #0
-           sta rs232_txd_flag
-           sta last_keycode
-.go_get_char_from_modem:
+.done:
            jmp get_char_from_modem
 
 
 handle_char_from_kbd:
            subroutine
-           bit restore_key_flag
-           bpl .next
-           cmp #F1
-           bne .next
-           ; F1 + restore pressed
-           jsr init_rcv_buffer_ptr
-           lda #0
-           sta restore_key_flag
-           jmp main
-.next:
-           ldx #0
-           stx restore_key_flag
-           cmp #128
+           ; Accept 0-128,130-141,147,148,160-255
+           cmp #$80
            bcc .continue_handle_char_from_kbd
-           cmp #129
+           cmp #$81
            beq .done
-           cmp #142
+           cmp #$8e
            bcc .continue_handle_char_from_kbd
            cmp #clear_screen
            beq .continue_handle_char_from_kbd
            cmp #insert
            beq .continue_handle_char_from_kbd
-           cmp #160
+           cmp #$a0
            bcs .continue_handle_char_from_kbd
 .done:
            jmp main
@@ -401,25 +332,14 @@ handle_char_from_kbd:
            jmp main
 .next4:
            cmp #F4                ; turn off DPX
-           bne .next5
+           bne .next6
            lda #$80               ; half
            sta dpx_flag
            jsr indicate_dpx_config
            jmp main
-.next5:
-           cmp #F5                ; turn off FMT
-           bne .next6
-           lda #$80               ; off
-           sta fmt_flag
-           jsr indicate_fmt_flag
-           jmp main
-.next6:
-           cmp #F6                ; turn on FMT
+.next6:    cmp #F6                ; reset
            bne .next7
-           lda #0                 ; on
-           sta fmt_flag
-           jsr indicate_fmt_flag
-           jmp main
+           jmp reset
 .next7:
            cmp #F7
            bne .next8
@@ -432,12 +352,12 @@ handle_char_from_kbd:
            cmp #insert
            bne .next10
            lda #DEL
-           bne output_char_to_modem_with_dpx_echo
+           jmp output_char_to_modem_with_dpx_echo
 .next10:
            cmp #$ba               ; unknown
            bne .next11
            lda #$60               ; PETSCII horizontal line
-           bne output_char_to_modem_with_dpx_echo
+           jmp output_char_to_modem_with_dpx_echo
 .next11:
            cmp #clear_screen
            bne .next12
@@ -450,11 +370,10 @@ handle_char_from_kbd:
 .next13:
            cmp #CR
            beq output_char_to_modem_with_dpx_echo
-
            cmp #delete
            bne .next14
            lda #BS
-           bne output_char_to_modem_with_dpx_echo
+           jmp output_char_to_modem_with_dpx_echo
 .next14:
            cmp #" "
            bcs output_char_to_modem_with_dpx_echo
@@ -483,7 +402,6 @@ output_char_to_modem:
            beq .done
            bit charset_flag
            bmi .done
-
 .convert_to_ascii:
            and #$7f
            cmp #"A"
@@ -506,10 +424,9 @@ get_char_from_modem:
            pla
            bne .handle_char
            jmp main
-
 .handle_char:
            cmp #CR
-           beq .handle_cr
+           beq .output_cr_then_done
            bit charset_flag
            bmi .handle_petscii_char
 .handle_ascii_char:
@@ -526,31 +443,10 @@ get_char_from_modem:
            cmp #" "
            bcs .handle_printable_char
            jmp main
-.handle_cr:
-           bit fmt_flag
-           bmi .output_cr_then_done
-           lda #0                 ; set discard spaces
-           sta fmt_flag
 .output_cr_then_done:
            lda #CR
-           bne .output_byte_to_screen_then_done
+           jmp .output_byte_to_screen_then_done
 .handle_printable_char:
-           bne .handle_nonspace_printable_char
-           ; char is a space, discard if 'discard spaces' is on
-           ldx fmt_flag
-           beq get_char_from_modem
-.handle_nonspace_printable_char:
-           bit fmt_flag
-           bmi .convert_and_output_byte_to_screen
-           cmp #" "
-           bne .set_nonspace_seen_fmt_flag
-.clear_nonspace_seen_fmt_flag:
-           ldx #0                 ; set discard spaces
-           hex 2c                 ; bit
-.set_nonspace_seen_fmt_flag:
-           ldx #1                 ; set dont discard spaces
-           stx fmt_flag
-.convert_and_output_byte_to_screen:
            bit charset_flag
            bmi .output_byte_to_screen_then_done
            cmp #"a"
@@ -654,24 +550,6 @@ clear_both_screens:
            rts
 
 
-toggle_rs232_txd:
-           subroutine
-           lda CI2PRA
-           and #%11111011         ; clear RS232 TXD line
-           sta CI2PRA
-           lda EXTCOL
-           ora #%00000001
-           sta EXTCOL
-           jsr delay_256x160
-           lda CI2PRA
-           ora #%00000100         ; set RS232 TXD line
-           sta CI2PRA
-           lda EXTCOL
-           and #%11111110
-           sta EXTCOL
-           rts
-
-
 delay_256x160:
            subroutine
            ldx #160
@@ -732,11 +610,6 @@ fine_scroll_one_line_if_needed:
            cmp #23
            bcs fine_scroll_one_line
            rts
-
-show_cursor_flag:
-           dc #$80                ; bit7: 0=dont show cursor, 1=show cursor
-screen_select_flag:
-           dc 0                   ; bit7: 0=low screen, 1=high screen
 
 
 fine_scroll_one_line:
@@ -863,10 +736,8 @@ screen_copy_offset = (23-1)*40 - 3*$100
            lda #cursor_left
            jsr CHROUT
            rts
-
-.save_y:   dc #$8F
-.save_x:   dc #$14
-
+.save_y:   dc 0
+.save_x:   dc 0
 
 output_space_and_cursor_left_to_screen:
            subroutine
@@ -897,10 +768,8 @@ output_backspace_to_screen:
            dec TBLX               ; move current cursor up one physical line
 .done:
            rts
-
 .move_cursor_up_oneline_flag:
            dc 0
-
 
 output_string_to_screen:
            subroutine
@@ -980,7 +849,6 @@ accept_presets_menu:
            lda #0
            sta NDX
            sta rcv_flag
-           sta restore_key_flag
            sta charset_flag
            jsr clear_both_screens
            jsr CLRCHN
@@ -989,7 +857,6 @@ accept_presets_menu:
            sta dpx_flag
            lda #$80
            sta ntsc_flag
-           sta fmt_flag
 
            lda #0                 ; user specified baud, 8 bits, 1 stop bit
            sta serial_config
@@ -1266,7 +1133,7 @@ accept_presets_menu:
            hex 0d
            dc "f3/f4  hALF dUpLEx TOGGLE             "
            hex 0d
-           dc "f5/f6  fORmAt TOGGLE                  "
+           dc "f6     rESET PROGRAM     "
            hex 0d
            dc "f7     rEVIEW rcv BUFFER, SPACE PAUSES"
            hex 0d
@@ -1275,17 +1142,9 @@ accept_presets_menu:
            dc "f8     dUMP rcv BUFFER TO PRINTER,    "
            hex 0d
            dc "         runstop STOPS PRINTING       "
-           hex 0d
-           dc "runstop + restore   rESET PROGRAM     "
-           hex 0d
-           dc "ctrl + runstop      tOGGLES tXd LINE  "
-           hex 0d
-           dc "f1 + restore        cLEAR rcv BUFFER  "
            hex 0d 0d
            hex 00
 
-charset_flag:
-           dc 0                   ; bit7: 0=ascii, 1=petscii
 
 .ntsc_baud_settings_lo:
            dc <ntsc_baud_2400     ; (1) 2400 baud lo
@@ -1385,34 +1244,6 @@ indicate_rcv_flag:
            lda sprite_data_base_addr+offset_rcv,y
            ora #%00111100
            sta sprite_data_base_addr+offset_rcv,y
-           iny
-           iny
-           iny
-           dex
-           bpl .set_indication
-           rts
-
-
-indicate_fmt_flag:
-           subroutine
-           ldx #6
-           ldy #2
-           bit fmt_flag
-           bpl .set_indication
-.clear_indication:
-           lda sprite_data_base_addr+offset_fmt*64,y
-           and #%11000000
-           sta sprite_data_base_addr+offset_fmt*64,y
-           iny
-           iny
-           iny
-           dex
-           bpl .clear_indication
-           rts
-.set_indication:
-           lda sprite_data_base_addr+offset_fmt*64,y
-           ora #%00111100
-           sta sprite_data_base_addr+offset_fmt*64,y
            iny
            iny
            iny
@@ -1600,8 +1431,6 @@ init_sprites:
            sta sprite_data_base_addr+offset_rcv*64,x
            lda .sprite_data_dpx,x
            sta sprite_data_base_addr+offset_dpx*64,x
-           lda .sprite_data_fmt,x
-           sta sprite_data_base_addr+offset_fmt*64,x
            lda .sprite_data_64t,x
            sta sprite_data_base_addr+offset_64t*64,x
            lda .sprite_data_ermi,x
@@ -1629,8 +1458,6 @@ init_sprites:
            sta SP3X
            lda #74
            sta SP4X
-           lda #123
-           sta SP5X
            ldx #<(sprite_data_base_addr/64)  ; set sprite #0 ptr
            stx lo_screen_addr+sprite_data_ptr_offset
            stx hi_screen_addr+sprite_data_ptr_offset
@@ -1646,38 +1473,8 @@ init_sprites:
            inx                               ; set sprite #4 ptr
            stx lo_screen_addr+sprite_data_ptr_offset+4
            stx hi_screen_addr+sprite_data_ptr_offset+4
-           inx                               ; set sprite #5 ptr
-           stx lo_screen_addr+sprite_data_ptr_offset+5
-           stx hi_screen_addr+sprite_data_ptr_offset+5
            rts
 
-.sprite_data_dpx:
-                        ; ------------------------
-           hex e3 c8 80 ; 111   1111  1   1
-           hex 92 28 80 ; 1  1  1   1 1   1
-           hex 8a 25 00 ; 1   1 1   1  1 1
-           hex 8b e2 00 ; 1   1 11111   1
-           hex 8a 05 00 ; 1   1 1      1 1
-           hex 92 08 80 ; 1  1  1     1   1
-           hex e2 08 80 ; 111   1     1   1
-.sprite_data_fmt:
-                        ; ------------------------
-           hex fa 2f 80 ; 11111 1   1 11111
-           hex 83 62 00 ; 1     11 11   1
-           hex 82 a2 00 ; 1     1 1 1   1
-           hex e2 22 00 ; 111   1   1   1
-           hex 82 22 00 ; 1     1   1   1
-           hex 82 22 00 ; 1     1   1   1
-           hex 82 22 00 ; 1     1   1   1
-.sprite_data_rcv:
-                        ; ------------------------
-           hex f1 c8 80 ; 1111   111  1   1
-           hex 8a 28 80 ; 1   1 1   1 1   1
-           hex 8a 08 80 ; 1   1 1     1   1
-           hex f2 05 00 ; 1111  1      1 1
-           hex a2 05 00 ; 1 1   1      1 1
-           hex 92 22 00 ; 1  1  1   1   1
-           hex 89 c2 00 ; 1   1  111    1
 .sprite_data_64t:
                         ; ------------------------
            hex 70 40 1f ;  111     1         11111
@@ -1705,7 +1502,24 @@ init_sprites:
            hex 9a 28 00 ; 1  11 1   1 1
            hex 8a 28 00 ; 1   1 1   1 1
            hex 8a 2f 80 ; 1   1 1   1 1111
-
+.sprite_data_rcv:
+                        ; ------------------------
+           hex f1 c8 80 ; 1111   111  1   1
+           hex 8a 28 80 ; 1   1 1   1 1   1
+           hex 8a 08 80 ; 1   1 1     1   1
+           hex f2 05 00 ; 1111  1      1 1
+           hex a2 05 00 ; 1 1   1      1 1
+           hex 92 22 00 ; 1  1  1   1   1
+           hex 89 c2 00 ; 1   1  111    1
+.sprite_data_dpx:
+                        ; ------------------------
+           hex e3 c8 80 ; 111   1111  1   1
+           hex 92 28 80 ; 1  1  1   1 1   1
+           hex 8a 25 00 ; 1   1 1   1  1 1
+           hex 8b e2 00 ; 1   1 11111   1
+           hex 8a 05 00 ; 1   1 1      1 1
+           hex 92 08 80 ; 1  1  1     1   1
+           hex e2 08 80 ; 111   1     1   1
 
 nmihandler:
            subroutine
@@ -1720,6 +1534,4 @@ nmihandler:
            bpl skip_rs232         ; NMI has not been generated
            jmp $fe72              ; RS232 NMI routine
 skip_rs232:
-           lda #$80
-           sta restore_key_flag
            jmp $febc              ; return from NMI
