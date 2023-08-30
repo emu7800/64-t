@@ -243,30 +243,10 @@ reset:
 main:
            subroutine
            jsr CLRCHN
-
-.get_byte_from_keyboard:
            jsr GETIN
            beq main
            cmp #stop_char
            beq main
-
-.get_current_key_pressed:
-           ldx SFDX
-           cpx #64                ; no key pressed
-           beq .done
-           lda $eb81,x            ; keyboard decode table: keyboard1 unshifted
-           and #$1f
-           cmp last_keycode
-           beq .done
-           sta last_keycode
-           pha
-           jmp output_char_to_modem
-.done:
-           jmp get_char_from_modem
-
-
-handle_char_from_kbd:
-           subroutine
            ; Accept 0-128,130-141,147,148,160-255
            cmp #$80
            bcc .continue_handle_char_from_kbd
