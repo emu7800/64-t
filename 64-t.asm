@@ -99,7 +99,7 @@ NMINV                   = $0318 ; Vector: Non-Maskable Interrupt
 
 
 sprite_data_base_addr   = $2000
-offset_rcv  = 0  ; RCF sprite
+offset_rcv  = 0  ; RCV sprite
 offset_dpx  = 1  ; DPX sprite
 offset_fmt  = 2  ; FMT sprite
 offset_64t  = 3  ; 64T sprite
