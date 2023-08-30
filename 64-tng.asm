@@ -100,7 +100,7 @@ NMINV                   = $0318 ; Vector: Non-Maskable Interrupt
 
 
 sprite_data_base_addr   = $2000
-offset_rcv  = 0  ; RCF sprite
+offset_rcv  = 0  ; RCV sprite
 offset_dpx  = 1  ; DPX sprite
 offset_64t  = 2  ; 64T sprite
 offset_ermi = 3  ; ERMI sprite
@@ -216,12 +216,6 @@ start:
            sta BGCOL0
            lda #1                  ; white
            sta COLOR
-
-           ; load nmihandler into NMI interrupt vector
-           lda #<nmihandler
-           sta NMINV
-           lda #>nmihandler
-           sta NMINV+1
 
            lda #$80                ; set to ntsc mode
            sta ntsc_flag
@@ -630,7 +624,7 @@ fine_scroll_one_line:
            dey
            bpl .loop1_hi
 
-screen_copy_offset = (23-1)*40 - 3*$100
+screen_copy_offset = 22*40 - 3*$100
 
            ldy #0
 .loop2_hi:
@@ -831,7 +825,7 @@ print_title_message_to_screen:
               ;----------------------------------------
            dc "             64 terminal ng"
            hex 0d 0d 0d 0d
-           dc "      ORIGINAL BY dR. jIM rOTHWELL"
+           dc "      oRIGINAL BY dR. jIM rOTHWELL"
            hex 0d 0d
            dc "                C. 1983"
            hex 0d 0d 0d 0d 0d
@@ -1445,32 +1439,31 @@ init_sprites:
            sta SP2Y
            sta SP3Y
            sta SP4Y
-           sta SP5Y
-           lda #4
+           lda #0
            sta MSIGX
            lda #184
            sta SP0X
            lda #240
            sta SP1X
-           lda #40
-           sta SP2X
            lda #25
-           sta SP3X
+           sta SP2X
            lda #74
+           sta SP3X
+           lda #123
            sta SP4X
-           ldx #<(sprite_data_base_addr/64)  ; set sprite #0 ptr
+           ldx #(sprite_data_base_addr >> 6) + offset_rcv
            stx lo_screen_addr+sprite_data_ptr_offset
            stx hi_screen_addr+sprite_data_ptr_offset
-           inx                               ; set sprite #1 ptr
+           ldx #(sprite_data_base_addr >> 6) + offset_dpx
            stx lo_screen_addr+sprite_data_ptr_offset+1
            stx hi_screen_addr+sprite_data_ptr_offset+1
-           inx                               ; set sprite #2 ptr
+           ldx #(sprite_data_base_addr >> 6) + offset_64t
            stx lo_screen_addr+sprite_data_ptr_offset+2
            stx hi_screen_addr+sprite_data_ptr_offset+2
-           inx                               ; set sprite #3 ptr
+           ldx #(sprite_data_base_addr >> 6) + offset_ermi
            stx lo_screen_addr+sprite_data_ptr_offset+3
            stx hi_screen_addr+sprite_data_ptr_offset+3
-           inx                               ; set sprite #4 ptr
+           ldx #(sprite_data_base_addr >> 6) + offset_nal
            stx lo_screen_addr+sprite_data_ptr_offset+4
            stx hi_screen_addr+sprite_data_ptr_offset+4
            rts
@@ -1520,18 +1513,3 @@ init_sprites:
            hex 8a 05 00 ; 1   1 1      1 1
            hex 92 08 80 ; 1  1  1     1   1
            hex e2 08 80 ; 111   1     1   1
-
-nmihandler:
-           subroutine
-           pha
-           txa
-           pha
-           tya
-           pha
-           lda #$7f               ; disable all NMI sources
-           sta CI2ICR
-           ldy CI2ICR
-           bpl skip_rs232         ; NMI has not been generated
-           jmp $fe72              ; RS232 NMI routine
-skip_rs232:
-           jmp $febc              ; return from NMI
