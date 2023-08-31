@@ -2,15 +2,17 @@
 ; Transactor Magazine, volume 9, issue3, February 1989
 ; https://archive.org/details/transactor-magazines-v9-i03/page/n63/mode/2up
 ;
-; Ported into a DASM macro by Mike Murphy. See https://dasm-assembler.github.io/.
+; Ported into a DASM macro by Mike Murphy.
+; See https://dasm-assembler.github.io/.
 ;
         MAC newmodem
         processor 6502
 
 ;--------------------------------------------
-;  "newmodem.src" - 64 mode.
-;  @128 = changes for 128 mode.
+;  "newmodem.src"
 ;--------------------------------------------
+ckind=64; 64 mode, set to 128 for c128 mode
+
 savy    =$97           ;save register y location
 dfltn   =$99           ;default input device (0=keyboard)
 dflto   =$9a           ;default output device (3=screen)
@@ -21,14 +23,26 @@ bitts   =$b4           ;RS-232 Output bit count
 nxtbit  =$b5           ;RS-232 Next bit to send
 rodata  =$b6           ;RS-232 Output byte buffer
 fa      =$ba           ;current device number
-ribuf   =$f7           ;@128 $c8    RS-232: recv buffer ptr
-robuf   =$f9           ;@128 $ca    RS-232: send buffer ptr
-baudof  =$0299         ;@128 $0a16  RS-232: time required to send a bit (2 bytes:clock/baud/2-100)
-ridbe   =$029b         ;@128 $0a18  RS-232: index to end of recv buffer
-ridbs   =$029c         ;@128 $0a19  RS-232: index to start of recv buffer
-rodbs   =$029d         ;@128 $0a1a  RS-232: index to start of send buffer
-rodbe   =$029e         ;@128 $0a1b  RS-232: index to end of send buffer
-enabl   =$02a1         ;@128 $0a0f  RS-232: NMI interrupts enabled from ci2icr (bit4=wait for rcv edge, bit1=rcving data, bit0=xmiting data)
+        IF ckind<=64
+ribuf   =$f7           ;RS-232: recv buffer ptr
+robuf   =$f9           ;RS-232: send buffer ptr
+baudof  =$0299         ;RS-232: time required to send a bit (2 bytes:clock/baud/2-100)
+ridbe   =$029b         ;RS-232: index to end of recv buffer
+ridbs   =$029c         ;RS-232: index to start of recv buffer
+rodbs   =$029d         ;RS-232: index to start of send buffer
+rodbe   =$029e         ;RS-232: index to end of send buffer
+enabl   =$02a1         ;RS-232: NMI interrupts enabled from ci2icr (bit4=wait for rcv edge, bit1=rcving data, bit0=xmiting data)
+        ENDIF
+        IF ckind>64    ;c128
+ribuf   =$c8           ;RS-232: recv buffer ptr
+robuf   =$ca           ;RS-232: send buffer ptr
+baudof  =$0a16         ;RS-232: time required to send a bit (2 bytes:clock/baud/2-100)
+ridbe   =$0a18         ;RS-232: index to end of recv buffer
+ridbs   =$0a19         ;RS-232: index to start of recv buffer
+rodbs   =$0a1a         ;RS-232: index to start of send buffer
+rodbe   =$0a1b         ;RS-232: index to end of send buffer
+enabl   =$0a0f         ;RS-232: NMI interrupts enabled from ci2icr (bit4=wait for rcv edge, bit1=rcving data, bit0=xmiting data)
+        ENDIF
 nminv   =$0318         ;Vector: Non-maskable interrupt
 ichkin  =$031e         ;Vector: Kernal CHKIN
 ibsout  =$0326         ;Vector: Kernal CHROUT
@@ -41,16 +55,26 @@ ti2bhi  =$dd07         ;CIA#2 timer B hi byte
 ci2icr  =$dd0d         ;CIA#2 interrupt control register
 ci2cra  =$dd0e         ;CIA#2 control register A
 ci2crb  =$dd0f         ;CIA#2 control register B
-rstkey  =$fe56         ;@128 $fa4b
-norest  =$fe72         ;@128 $fa5f
-return  =$febc         ;@128 $ff33
-oldout  =$f1ca         ;@128 $ef79
-oldchk  =$f21b         ;@128 $f10e
-findfn  =$f30f         ;@128 $f202
-devnum  =$f31f         ;@128 $f212
-nofile  =$f701         ;@128 $f682
-;--------------------------------------------
-;org    =$ce00         ;@128 $1a00
+        IF ckind<=64
+rstkey  =$fe56
+norest  =$fe72
+return  =$febc
+oldout  =$f1ca
+oldchk  =$f21b
+findfn  =$f30f
+devnum  =$f31f
+nofile  =$f701
+        ENDIF
+        IF ckind>64    ;c128
+rstkey  =$fa4b
+norest  =$fa5f
+return  =$ff33
+oldout  =$ef79
+oldchk  =$f10e
+findfn  =$f202
+devnum  =$f212
+nofile  =$f682
+        ENDIF
 ;--------------------------------------------
 xx00    jmp setup
 xx03    jmp inable     ;enables RS-232 input function without selecting device #2 for input (do after disk, tape, REU operation)
@@ -58,16 +82,65 @@ xx06    jmp disabl     ;disables RS-232 input function without selecting another
 xx09    jmp rsget      ;get char from RS-232 recv buffer regardless of current input device (carry set if buffer empty)
 xx0c    jmp rsout      ;put char to RS-232 send buffer regardless of current output device
         nop
-strt24  .word $01cb    ; 459 start-bit times
-strt12  .word $0442    ;1090
-strt03  .word $1333    ;4915
-full24  .word $01a5    ; 421 full-bit times
-full12  .word $034d    ; 845
-full03  .word $0d52    ;3410
+
+topal_factor = 985248 / 1022727  ; ~96.3%  pal hz / ntsc hz
+
+; start-bit times
+ntsc_strt24  = 459
+ntsc_strt12  = 1090
+ntsc_strt03  = 4915
+
+pal_strt24  = topal_factor * ntsc_strt24
+pal_strt12  = topal_factor * ntsc_strt12
+pal_strt03  = topal_factor * ntsc_strt03
+
+; full-bit times
+ntsc_full24  = 421
+ntsc_full12  = 845
+ntsc_full03  = 3410
+
+pal_full24  = topal_factor * ntsc_full24
+pal_full12  = topal_factor * ntsc_full12
+pal_full03  = topal_factor * ntsc_full03
+
+strttimes:
+        .word ntsc_strt24
+        .word ntsc_strt12
+        .word ntsc_strt03
+        .word ntsc_strt03
+        .word pal_strt24
+        .word pal_strt12
+        .word pal_strt03
+        .word pal_strt03
+fulltimes:
+        .word ntsc_full24
+        .word ntsc_full12
+        .word ntsc_full03
+        .word ntsc_full03
+        .word pal_full24
+        .word pal_full12
+        .word pal_full03
+        .word pal_full03
+
 ;--------------------------------------------
 setup:
-        lda #<nmi64    ;@128 #<nmi128
-        ldy #>nmi64    ;@128 #>nmi128
+        ; baud setting: acc:
+        ;   0=ntsc2400, 1=ntsc1200, 2=ntsc300, 3=ntsc300,
+        ;   4=pal2400, 5=pal1200, 6=pal300, 7=pal300
+        and #7
+        asl
+        tay
+        lda strttimes,y
+        sta strtlo+1   ;overwrite values in nmi handler
+        lda strttimes+1,y
+        sta strthi+1
+        lda fulltimes,y
+        sta fulllo+1
+        lda fulltimes+1,y
+        sta fullhi+1
+
+        lda #<nmi
+        ldy #>nmi
         sta nminv
         sty nminv+1
         lda #<nchkin
@@ -80,13 +153,14 @@ setup:
         sty ibsout+1
         rts
 ;--------------------------------------------
-nmi64:
+nmi:
+        IF ckind<=64
         pha            ;new nmi handler
         txa
         pha
         tya
         pha
-nmi128:
+        ENDIF
         cld
         ldx ti2bhi     ;sample timer b hi byte
         lda #$7f       ;disable cia nmi's
@@ -270,23 +344,6 @@ nchkin:
 inable:
         sta sava       ;enable rs232 input
         sty savy
-baud:
-        lda baudof+1   ;set receive to same
-
-       ;and #$06       ;  baud rate as xmit
-        and #3         ;fix
-        asl a          ;fix
-
-        tay
-        lda strt24,y
-        sta strtlo+1   ;overwrite values in nmi handler
-        lda strt24+1,y
-        sta strthi+1
-        lda full24,y
-        sta fulllo+1
-        lda full24+1,y
-        sta fullhi+1
-
         lda enabl
         and #$12       ;*flag or tb on?
         bne ret1       ;yes

@@ -1493,3 +1493,12 @@ init_sprites:
            hex 8a 05 00 ; 1   1 1      1 1
            hex 92 08 80 ; 1  1  1     1   1
            hex e2 08 80 ; 111   1     1   1
+
+
+
+
+           ds.b newmodem_start-*, 0
+newmodem_start:
+           org (((* >> 8) + 1) << 8)
+           include "newmodem.asm"
+           newmodem
