@@ -33,3 +33,12 @@ Pre-assembled outputs are included for convenience: `64-t.prg` and `64-tng.prg`.
 To run on your Commodore 64, simply enter `LOAD"64-t.prg",8` or `LOAD"64-tng.prg",8`
 at the `READY` prompt.
 After loading completes, enter `RUN`.
+
+### TODO
+
+The "Next Generation" version is still a work in progress.
+
+- weird issue where incoming characters are printed one per line
+- scroll effect needs to retain PETSCII colors
+- test the newmodem routines (secret tv options 3 and 4)
+- PETSCII art seems to trigger an extra newline

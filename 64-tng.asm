@@ -69,7 +69,7 @@ underscore              = 164   ; PETSCII underscore
 
 accumlator_save         = $03
 dpx_flag                = $1f   ; bit7: 0=full, 1=half
-ntsc_flag               = $21   ; bit7: 0=b/w, 1=color
+ntsc_flag               = $21   ; bit7: 0=pal, 1=ntsc
 FREETOP                 = $33   ; Pointer to the Bottom of the String Text Storage Area
 FRESPC                  = $35   ; Temporary Pointer for Strings
 MEMSIZ1                 = $37   ; Pointer to the Highest Address Used by BASIC
@@ -398,42 +398,44 @@ get_char_from_modem:
            pha
            jsr CLRCHN
            pla
-           bne .handle_char
-           jmp main
+           beq .done
 .handle_char:
            bit charset_flag
-           bmi .output_byte_to_screen_then_done
+           bmi .output_char_to_screen_then_done
 .handle_ascii_char:
            and #$7f
            cmp #BS
-           beq .output_byte_to_screen_then_done
+           beq .output_char_to_screen_then_done
            cmp #DEL
-           beq .output_byte_to_screen_then_done
+           beq .output_char_to_screen_then_done
            cmp #CR
-           beq .output_byte_to_screen_then_done
+           beq .output_char_to_screen_then_done
            cmp #" "
-           bcs .handle_printable_char
-           jmp main
-.handle_printable_char:
-           bit charset_flag
-           bmi .output_byte_to_screen_then_done
+           bcc .done
+.handle_printable_ascii_char:
            cmp #"a"
-           bcc .next
+           bcc .handle_printable_ascii_char2
            sbc #32
-           bne .output_byte_to_screen_then_done
-.next:
+           bne .output_char_to_screen_then_done
+.handle_printable_ascii_char2:
            cmp #"A"
-           bcc .output_byte_to_screen_then_done
+           bcc .output_char_to_screen_then_done
            cmp #"Z"+1
-           bcs .output_byte_to_screen_then_done
+           bcs .output_char_to_screen_then_done
            adc #32
-.output_byte_to_screen_then_done:
+.output_char_to_screen_then_done:
            jsr output_char_to_screen
+.done
            jmp main
 
 
 dump_rcv_buffer_to_printer:
            subroutine
+           lda #1
+           bit ntsc_flag
+           beq .skip_newmodem_disabl
+           jsr newmodem_disabl
+.skip_newmodem_disabl:
            lda #0
            sta rcv_flag
            sta rcv_notadded_flag
@@ -488,6 +490,11 @@ dump_rcv_buffer_to_printer:
            jsr open_modem_device
            lda #%00010111         ; scroll 7, 24 rows
            sta SCROLY
+           lda #1
+           bit ntsc_flag
+           beq .skip_newmodem_inable
+           jsr newmodem_inable
+.skip_newmodem_inable:
            jmp main
 
 .err_printer_offline_message:
@@ -534,15 +541,16 @@ delay_256x160:
 output_char_to_screen:
            subroutine
            bit rcv_flag
-           bpl .next1
+           bpl .skip_buffering
            jsr to_rcv_buffer
-.next1:
+.skip_buffering:
            cmp #CR
-           bne .next2
+           bne .is_not_cr
            jsr output_space_and_cursor_left_to_screen
+.is_cr:
            lda #CR
-           bne .is_not_quote
-.next2:
+           bne .chrout_and_fine_scroll_if_needed
+.is_not_cr:
            bit charset_flag
            bmi .is_petscii
            cmp #BS
@@ -558,14 +566,12 @@ output_char_to_screen:
            jmp fine_scroll_one_line_if_needed
 .is_not_backspace:
            cmp #quote
-           bne .is_not_quote
+           bne .chrout_and_fine_scroll_if_needed
            jsr CHROUT
            lda #quote
            jsr CHROUT
            lda #cursor_left
-           jsr CHROUT
-           jmp fine_scroll_one_line_if_needed
-.is_not_quote:
+.chrout_and_fine_scroll_if_needed:
            jsr CHROUT
 
 
@@ -873,10 +879,26 @@ accept_presets_menu:
            bne .baud_start
 .tv_n1:
            cmp #"2"
-           bne .tv_q
+           bne .tv_n2
            jsr output_char_to_screen
            lda #0
            sta ntsc_flag
+           beq .baud_start
+; temporary options to switch on 'newmodem'
+.tv_n2:
+           cmp #"3"
+           bne .tv_n3
+           jsr output_char_to_screen
+           lda #$81
+           sta ntsc_flag
+           bne .baud_start
+.tv_n3:
+           cmp #"4"
+           bne .tv_q
+           jsr output_char_to_screen
+           lda #1
+           sta ntsc_flag
+;
 .baud_start
            jsr delay_onethirdsec
            jsr output_clear_and_cursor_down_to_screen
@@ -896,6 +918,7 @@ accept_presets_menu:
            and #7
            tax
            dex
+           stx baud_selection
            bit ntsc_flag
            bmi .baud_ntsc
 .baud_pal:
@@ -948,6 +971,19 @@ accept_presets_menu:
            ldy #<.help_text
            lda #>.help_text
            jsr output_string_to_screen
+           lda #1
+           bit ntsc_flag
+           beq .done2
+           bpl .palsetup
+.ntscsetup:
+           lda baud_selection
+           jmp .setup
+.palsetup:
+           lda baud_selection
+           adc #4
+.setup:
+           jsr newmodem_setup
+.done2:
            rts
 .presets:
            dc "***PRESETS***"
@@ -1013,6 +1049,8 @@ accept_presets_menu:
            hex 0d 0d
            hex 00
 
+baud_selection:
+           dc 0
 
 .ntsc_baud_settings_lo:
            dc <ntsc_baud_2400     ; (1) 2400 baud lo
@@ -1374,9 +1412,12 @@ init_sprites:
 
 
 
-
-           ds.b newmodem_start-*, 0
-newmodem_start:
            org (((* >> 8) + 1) << 8)
+newmodem_start:
+newmodem_setup  = newmodem_start
+newmodem_inable = newmodem_start+3
+newmodem_disabl = newmodem_start+6
            include "newmodem.asm"
            newmodem
+
+
