@@ -243,14 +243,14 @@ main:
            subroutine
            jsr CLRCHN
            jsr GETIN
-           beq main
+           beq .go_get_char_from_modem
            cmp #stop_char
            beq main
            ; Accept 0-128,130-141,147,148,160-255
            cmp #$80
            bcc .continue_handle_char_from_kbd
            cmp #$81
-           beq .done
+           beq .go_get_char_from_modem
            cmp #$8e
            bcc .continue_handle_char_from_kbd
            cmp #clear_screen
@@ -259,8 +259,8 @@ main:
            beq .continue_handle_char_from_kbd
            cmp #$a0
            bcs .continue_handle_char_from_kbd
-.done:
-           jmp main
+.go_get_char_from_modem:
+           jmp get_char_from_modem
 
 .continue_handle_char_from_kbd:
            cmp #F1                ; turn off RCV
@@ -345,7 +345,10 @@ main:
            beq output_char_to_modem_with_dpx_echo
            cmp #delete
            bne .next14
+           bit charset_flag
+           bmi .dont_convert_delete
            lda #BS
+.dont_convert_delete:
            jmp output_char_to_modem_with_dpx_echo
 .next14:
            cmp #" "
@@ -398,27 +401,19 @@ get_char_from_modem:
            bne .handle_char
            jmp main
 .handle_char:
-           cmp #CR
-           beq .output_cr_then_done
            bit charset_flag
-           bmi .handle_petscii_char
+           bmi .output_byte_to_screen_then_done
 .handle_ascii_char:
            and #$7f
            cmp #BS
            beq .output_byte_to_screen_then_done
            cmp #DEL
            beq .output_byte_to_screen_then_done
-           bne .handle_char2
-.handle_petscii_char:
-           cmp #delete
+           cmp #CR
            beq .output_byte_to_screen_then_done
-.handle_char2:
            cmp #" "
            bcs .handle_printable_char
            jmp main
-.output_cr_then_done:
-           lda #CR
-           jmp .output_byte_to_screen_then_done
 .handle_printable_char:
            bit charset_flag
            bmi .output_byte_to_screen_then_done
@@ -548,14 +543,19 @@ output_char_to_screen:
            lda #CR
            bne .is_not_quote
 .next2:
+           bit charset_flag
+           bmi .is_petscii
            cmp #BS
            beq .is_backspace
            cmp #DEL
+           beq .is_backspace
+           bne .is_not_backspace
+.is_petscii:
+           cmp #delete
            bne .is_not_backspace
 .is_backspace:
            jsr output_backspace_to_screen
            jmp fine_scroll_one_line_if_needed
-
 .is_not_backspace:
            cmp #quote
            bne .is_not_quote
@@ -565,7 +565,6 @@ output_char_to_screen:
            lda #cursor_left
            jsr CHROUT
            jmp fine_scroll_one_line_if_needed
-
 .is_not_quote:
            jsr CHROUT
 
@@ -813,7 +812,7 @@ print_title_message_to_screen:
            dc "            MIKE@EMU7800.NET"
            hex 0d 0d
            dc "                C. 2023"
-           hex 0d 0d 0d 0d 0d 0d
+           hex 0d 0d 0d 0d
            hex 00
 
 
