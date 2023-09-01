@@ -8,8 +8,7 @@
 ; - Set-up menu/function key modes
 ; - 24K Receive Buffer with Review
 ;   and VIC printer dump
-; - Fully programmable Baud, Duplex,
-;   Parity, Wordsize, Stopbit, Linefeed
+; - Improved baud rate settings
 ; - Requires modem, VIC printer optional
 ;
 ; Original by Dr. Jim Rothwell, Midwest Micro Inc., circa 1983
@@ -834,8 +833,8 @@ accept_presets_menu:
 
            lda #0                 ; user specified baud, 8 bits, 1 stop bit
            sta serial_config
-           lda #0                 ; 3 lines, full duplex, mark parity
-           sta serial_config+1
+           lda #0
+           sta serial_config+1    ; no parity
            lda #<ntsc_baud_1200
            sta serial_config+2
            lda #>ntsc_baud_1200
@@ -905,92 +904,21 @@ accept_presets_menu:
            sta serial_config+2
            lda .pal_baud_settings_hi,x
            sta serial_config+3
-           jmp .wordsize_start
+           jmp .set_8n1
 .baud_ntsc:
            lda .ntsc_baud_settings_lo,x
            sta serial_config+2
            lda .ntsc_baud_settings_hi,x
            sta serial_config+3
-
-.wordsize_start:
-           jsr delay_onethirdsec
-           jsr output_clear_and_cursor_down_to_screen
-           ldy #<.presets_wordsize
-           lda #>.presets_wordsize
-           jsr output_string_to_screen
-.wordsize_q:
-           jsr GETIN
-           beq .wordsize_q
-           cmp #"1"
-           bcc .wordsize_q
-           cmp #"3"
-           bcs .wordsize_q
-           pha
-           jsr output_char_to_screen
-           pla
-           and #7  ; mask it
-           tax
-           dex     ; decrement it
-           txa
-           asl     ; double it
-           tax
+.set_8n1:
            lda serial_config
-           and #%10011111
-           ora .wordsize_settings,x
+           and #%10011111         ; 8 bit
+           and #%01111111         ; 1 stop bit
            sta serial_config
-.parity_start:
-           jsr delay_onethirdsec
-           jsr output_clear_and_cursor_down_to_screen
-           ldy #<.presets_parity
-           lda #>.presets_parity
-           jsr output_string_to_screen
-.parity_q:
-           jsr GETIN
-           beq .parity_q
-           cmp #"1"
-           bcc .parity_q
-           cmp #"6"
-           bcs .parity_q
-           pha
-           jsr output_char_to_screen
-           pla
-           and #7  ; mask it
-           tax
-           dex     ; decrement it
-           txa
-           asl     ; double it
-           tax
            lda serial_config+1
-           and #%00011111
-           ora .parity_settings,X
+           and #%00011111         ; no parity
            sta serial_config+1
-.stopbits_start:
-           jsr delay_onethirdsec
-           jsr output_clear_and_cursor_down_to_screen
-           ldy #<.presets_stopbits
-           lda #>.presets_stopbits
-           jsr output_string_to_screen
-.stopbits_q:
-           jsr GETIN
-           beq .stopbits_q
-           cmp #"1"
-           bcc .stopbits_q
-           cmp #"3"
-           bcs .stopbits_q
-           pha
-           jsr output_char_to_screen
-           pla
-           and #7  ; mask it
-           tax
-           dex     ; decrement it
-           txa
-           asl     ; double it
-           tax
-           lda serial_config
-           and #%01111111
-           ora .stopbit_settings,X
-           sta serial_config
-.charset_start: ; TODO: need to add PESCII support
+.charset_start:
            jsr delay_onethirdsec
            jsr output_clear_and_cursor_down_to_screen
            ldy #<.presets_charset
@@ -1059,39 +987,6 @@ accept_presets_menu:
            hex 0d 0d
            dc "SELECTION? "
            dc 0
-.presets_wordsize:
-           dc "***WORDSIZE***"
-           hex 0d 0d
-           dc "1.    8"
-           hex 0d
-           dc "2.    7"
-           hex 0d 0d
-           dc "SELECTION? "
-           dc 0
-.presets_parity:
-           dc "***PARITY***"
-           hex 0d 0d
-           dc "1.  NONE"
-           hex 0d
-           dc "2.   ODD"
-           hex 0d
-           dc "3.  EVEN"
-           hex 0d
-           dc "4.  MARK"
-           hex 0d
-           dc "5. SPACE"
-           hex 0d 0d
-           dc "SELECTION? "
-           dc 0
-.presets_stopbits:
-           dc "***STOPBITS***"
-           hex 0d 0d
-           dc "1. 1"
-           hex 0d
-           dc "2. 2"
-           hex 0d 0d
-           dc "SELECTION? "
-           dc 0
 .presets_charset:
            dc "***CHARSET***"
            hex 0d 0d
@@ -1138,21 +1033,6 @@ accept_presets_menu:
            dc >pal_baud_1200      ; (2) 1200 baud hi
            dc >pal_baud_300       ; (3)  300 baud hi
 
-.parity_settings:
-           hex 00 00              ; 000 00000: (1) none
-           hex 20 00              ; 001 00000: (2) odd
-           hex 60 00              ; 011 00000; (3) even
-           hex a0 00              ; 101 00000; (4) mark  (off 7bit=1)
-           hex e0 7f              ; 111 00000; (5) space (off 7bit=0)
-
-.stopbit_settings:
-           hex 00 00              ; 0 0000000: (1) 1 stop bit
-           hex 80 00              ; 1 0000000: (2) 2 stop bits
-
-           hex 9f ff
-.wordsize_settings:
-           hex 00 00              ; 0000 0000: (2) 8 bits
-           hex 20 00              ; 0010 0000: (1) 7 bits
 
 config_colors:
            subroutine
@@ -1167,7 +1047,6 @@ config_colors:
            sta SP2COL
            sta SP3COL
            sta SP4COL
-           sta SP5COL
            rts
 
 
