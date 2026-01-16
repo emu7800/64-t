@@ -20,15 +20,16 @@ Enjoy! Feel free to drop me a line. It would be interesting if this resonates wi
 
 ### Contents
 
-`64-t.asm` is the assembly source listing reversed engineered from the original binary found on the cassette tape. It can be assembled by the [dasm](https://dasm-assembler.github.io/)
-assembler and outputs the exact bytes as the original.
+`64-t.s` is the assembly source listing reversed engineered from the original binary found on the cassette tape. It can be assembled by the [cc65](https://cc65.github.io/)
+toolchain and outputs the exact bytes as the original.
 
 `64-tng.asm` is the assembly source listing of a "next generation" or improved/improving version
-of the original `64-t.asm`, eliminating minor bugs of the original and adding new features.
+of the original `64-t.s`, eliminating minor bugs of the original and adding new features.
+Still a work in progress.
 
-`build.ps1` is a PowerShell script that assembles both source files.
-
-Pre-assembled outputs are included for convenience: `64-t.prg` and `64-tng.prg`.
+Pre-assembled targets are included for convenience: `64-t.prg` and `64-tng.prg`.
+Running `make` without arguments will build the targets from the source,
+requiring Linux with cc65 built and located at $CC65_HOME and available in the $PATH along with GNU make.
 
 To run on your Commodore 64, simply enter `LOAD"64-t.prg",8` or `LOAD"64-tng.prg",8`
 at the `READY` prompt.
@@ -42,3 +43,4 @@ The "Next Generation" version is still a work in progress.
 - scroll effect needs to retain PETSCII colors
 - test the newmodem routines (secret tv options 3 and 4)
 - PETSCII art seems to trigger an extra newline
+-
