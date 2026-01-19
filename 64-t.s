@@ -700,6 +700,7 @@ fine_scroll_one_line_if_needed:
            bcs fine_scroll_one_line
            rts
 
+
 show_cursor_flag:
            .byte $80                 ; bit7: 0=dont show cursor, 1=show cursor
 screen_select_flag:
@@ -773,6 +774,7 @@ fine_scroll_one_line:
            sta lo_screen_addr+1*40,y
            dey
            bpl @loop3_lo
+
 
 do_fine_scroll:
            ldy #7
@@ -909,6 +911,7 @@ print_title_message_to_screen:
            jsr delay_onethirdsec
            jsr delay_onethirdsec
            rts
+
 
 title_message:
            .byte $91
@@ -1146,6 +1149,8 @@ accept_presets_menu:
            sta VIC_SPR_ENA
            jsr output_cursor_home_and_cursor_down
            rts
+
+
 presets:
            .byte "***presets***"
            .byte $0d, $0d
@@ -1252,22 +1257,22 @@ baud_settings_hi:
            .byte $00
 
 parity_settings:
-           .byte $00, $00              ; 000 00000: (1) off
-           .byte $20, $00              ; 001 00000: (2) odd
-           .byte $60, $00              ; 011 00000; (3) even
-           .byte $a0, $00              ; 101 00000; (4) mark  (off 7bit=1)
-           .byte $e0, $7f              ; 111 00000; (5) space (off 7bit=0)
+           .byte $00, $00            ; 000 00000: (1) off
+           .byte $20, $00            ; 001 00000: (2) odd
+           .byte $60, $00            ; 011 00000; (3) even
+           .byte $a0, $00            ; 101 00000; (4) mark  (off 7bit=1)
+           .byte $e0, $7f            ; 111 00000; (5) space (off 7bit=0)
 
            .byte $ff
 
 stopbit_settings:
-           .byte $00, $00              ; 0 0000000: (1) 1 stop bit
-           .byte $80, $00              ; 1 0000000: (2) 2 stop bits
+           .byte $00, $00            ; 0 0000000: (1) 1 stop bit
+           .byte $80, $00            ; 1 0000000: (2) 2 stop bits
 
            .byte $9f, $ff
 wordsize_settings:
-           .byte $20, $00              ; 0010 0000: (1) 7 bits
-           .byte $00, $00              ; 0000 0000: (2) 8 bits
+           .byte $20, $00            ; 0010 0000: (1) 7 bits
+           .byte $00, $00            ; 0000 0000: (2) 8 bits
 
 
 config_color:
@@ -1316,6 +1321,7 @@ indicate_dpx_config:
            dex
            bpl @set_indication
            rts
+
 
 indicate_rcv_flag:
            ldx #6
@@ -1577,6 +1583,7 @@ sprite_data_nal:
            .byte $8a, $28, $00 ; 1   1 1   1 1
            .byte $8a, $2f, $80 ; 1   1 1   1 1111
 
+
 init_sprites:
            ldx #$ff               ; set all sprites to double-width
            stx VIC_SPR_EXP_X
@@ -1656,9 +1663,9 @@ nmihandler:
            lda #$7f               ; disable all NMI sources
            sta CIA2_ICR
            ldy CIA2_ICR
-           bpl skip_rs232         ; NMI has not been generated
+           bpl @skip_rs232         ; NMI has not been generated
            jmp $fe72              ; RS232 NMI routine
-skip_rs232:
+@skip_rs232:
            lda #$80
            sta restore_key_flag
            jmp $febc              ; return from NMI
