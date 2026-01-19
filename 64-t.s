@@ -135,32 +135,31 @@ modem_device_no         = 2
 printer_file_no         = 4
 printer_device_no       = 4
 
-; C64 kernal addresses
-USKINDIC    := $f6bc ; Update Stop key indicator, at memory address $0091, A and X registers used
-UNTLK       := $FFAB
-UNLSN       := $FFAE
-READST      := $FFB7
-SETLFS      := $FFBA
-SETNAM      := $FFBD
-OPEN        := $FFC0
-CLOSE       := $FFC3
+; C64 kernal addresses not in cbm_kernal.inc
+USKINDIC                = $f6bc ; Update Stop key indicator, at memory address $0091, A and X registers used
 
-           .org $0801
-           .word *          ; prg load address convention
-           .org $0801
+           .segment "LOADADDR"
+           .import __LOADADDR__
+           .word   __LOADADDR__
 
+           .segment "EXEHDR"
+startofexeheader:
            ; 0 SYS2304:REM   * * * 64 TERMINAL * * *
-           .word endofbootstrapper
-           .byte $00, $00
-           .byte $9e, $32, $33, $30, $34, $3a, $8f
-           .asciiz "   * * * 64 TERMINAL * * *"
+           .word endofbasicprogram
+           .byte $00, $00 ; 0
+           .byte $9e      ; SYS
+           .byte $30 + .lobyte ((start .mod 10000) / 1000)
+           .byte $30 + .lobyte ((start .mod 1000) / 100)
+           .byte $30 + .lobyte ((start .mod 100) / 10)
+           .byte $30 + .lobyte ((start .mod 10) / 1)
+           .byte $3a      ; :
+           .byte $8f      ; REM
+           .asciiz "   * * * 64 terminal * * *"
 
-endofbootstrapper:
+endofbasicprogram:
            .byte 0, 0
 
-           .res $0900-*, 0
-
-           .org $0900
+           .segment "CODE"
 start:
            jsr copy_cart_signature_for_nono_routine
            jsr clear_both_screens
@@ -898,8 +897,8 @@ print_title_message_to_screen:
            ldx #20
            stx TBLX
 
-           ldy #<@title_message
-           lda #>@title_message
+           ldy #<title_message
+           lda #>title_message
            jsr output_string_to_screen
 
            jsr output_space_and_cursor_left_to_screen
@@ -911,22 +910,22 @@ print_title_message_to_screen:
            jsr delay_onethirdsec
            rts
 
-@title_message:
+title_message:
            .byte $91
-           .byte "              64 terminal"
+           .byte "              64 TERMINAL"
            .byte $0d, $0d, $0d, $0d
-           .byte "                   BY"
+           .byte "                   by"
            .byte $0d, $0d, $0d, $0d
-           .byte "            dR. jIM rOTHWELL"
+           .byte "            Dr. Jim Rothwell"
            .byte $0d, $0d, $0d, $0d, $0d, $0d
            .byte "               (C) 1983"
            .byte $0d, $0d
-           .byte "           mIDWEST mICRO iNC."
+           .byte "           Midwest Micro Inc."
            .byte $0d, 0
 
 err_printer_offline_message:
            .byte $0d
-           .byte "* * * error: pRINTER oFF-lINE * * *"
+           .byte "* * * ERROR: Printer Off-Line * * *"
            .byte $0d, 0
 
 
@@ -1148,26 +1147,26 @@ accept_presets_menu:
            jsr output_cursor_home_and_cursor_down
            rts
 presets:
-           .byte "***PRESETS***"
+           .byte "***presets***"
            .byte $0d, $0d
-           .byte "BAUD: 300"
+           .byte "baud: 300"
            .byte $0d
-           .byte "LINEFEED: OFF"
+           .byte "linefeed: off"
            .byte $0d
-           .byte "PARITY: MARK"
+           .byte "parity: mark"
            .byte $0d
-           .byte "STOPBITS: 1"
+           .byte "stopbits: 1"
            .byte $0d
-           .byte "WORDSIZE: 7 BITS"
+           .byte "wordsize: 7 bits"
            .byte $0d
-           .byte "CASE MODE: UPPER/LOWER"
+           .byte "case mode: upper/lower"
            .byte $0d
-           .byte "TV: COLOR"
+           .byte "tv: color"
            .byte $0d, $0d
-           .byte "ACCEPT PRESETS? "
+           .byte "accept presets? "
            .byte 0
 presets_baud:
-           .byte "***BAUD***"
+           .byte "***baud***"
            .byte $0d, $0d
            .byte "1.  110"
            .byte $0d
@@ -1175,67 +1174,67 @@ presets_baud:
            .byte $0d
            .byte "3.  300"
            .byte $0d, $0d
-           .byte "SELECTION? "
+           .byte "selection? "
            .byte 0
 presets_linefeed:
-           .byte "***LINEFEED***"
+           .byte "***linefeed***"
            .byte $0d, $0d
-           .byte "1. OFF"
+           .byte "1. off"
            .byte $0d
-           .byte "2.  ON"
+           .byte "2.  on"
            .byte $0d, $0d
-           .byte "SELECTION? "
+           .byte "selection? "
            .byte 0
 presets_parity:
-           .byte "***PARITY***"
+           .byte "***parity***"
            .byte $0d, $0d
-           .byte "1.   OFF"
+           .byte "1.   off"
            .byte $0d
-           .byte "2.   ODD"
+           .byte "2.   odd"
            .byte $0d
-           .byte "3.  EVEN"
+           .byte "3.  even"
            .byte $0d
-           .byte "4.  MARK"
+           .byte "4.  mark"
            .byte $0d
-           .byte "5. SPACE"
+           .byte "5. space"
            .byte $0d, $0d
-           .byte "SELECTION? "
+           .byte "selection? "
            .byte 0
 presets_stopbits:
-           .byte "***STOPBITS***"
+           .byte "***stopbits***"
            .byte $0d, $0d
            .byte "1. 1"
            .byte $0d
            .byte "2. 2"
            .byte $0d, $0d
-           .byte "SELECTION? "
+           .byte "selection? "
            .byte 0
 presets_tvvideo:
-           .byte "***TV/VIDEO***"
+           .byte "***tv/video***"
            .byte $0d, $0d
-           .byte "1.   B/W"
+           .byte "1.   b/w"
            .byte $0d
-           .byte "2. COLOR"
+           .byte "2. color"
            .byte $0d, $0d
-           .byte "SELECTION? "
+           .byte "selection? "
            .byte 0
 presets_wordsize:
-           .byte "***WORDSIZE***"
+           .byte "***wordsize***"
            .byte $0d, $0d
            .byte "1.    7"
            .byte $0d
            .byte "2.    8"
            .byte $0d, $0d
-           .byte "SELECTION? "
+           .byte "selection? "
            .byte 0
 presets_casemode:
-           .byte "***CASE MODE***"
+           .byte "***case mode***"
            .byte $0d, $0d
-           .byte "1.   UPPER/LOWER"
+           .byte "1.   upper/lower"
            .byte $0d
-           .byte "2. CAPS ONLY"
+           .byte "2. caps only"
            .byte $0d, $0d
-           .byte "SELECTION? "
+           .byte "selection? "
            .byte 0
 case_flag:
            .byte 0                   ; bit7: 0=upper/lower, 1=upper only
@@ -1692,5 +1691,5 @@ that_is_a_nono:
            beq @spin_forever
 
 @nono_msg:
-           .byte " THAT IS A NO-NO !!"
+           .byte " that is a no-no !!"
            .byte $0d, 0
