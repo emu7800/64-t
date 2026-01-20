@@ -1,4 +1,3 @@
-           processor 6502
 ;
 ; '64 Terminal - Next Generation
 ;
@@ -27,9 +26,12 @@
 ; by Mike Murphy (mike@emu7800.net), circa 2023.
 ; Intended for preservation and educational purposes only.
 ;
-; Build using dasm, the 8-bit macro assembler: https://dasm-assembler.github.io/:
-; > dasm.exe .\64-tng.asm -f1 -v4 '-o64-tng.prg'
+; To build, invoke 'make' in this directory without arguments.
 ;
+
+            .setcpu "6502"
+            .include "cbm_kernal.inc"
+            .include "c64.inc"
 
 ntsc_clock_freq         = 1022727
 pal_clock_freq          = 985248
@@ -50,7 +52,13 @@ toggle_charset          = 14    ; PETSCII toggle character se
 cursor_down             = 17    ; PETSCII cursor down
 cursor_home             = 19    ; PETSCII cursor home
 delete                  = 20    ; PETSCII delete $14
+space                   = 32    ; PETSCII/ASCII space
 quote                   = 34    ; PETSCII/ASCII quote
+achar                   = 65    ; PETSCII a
+nchar                   = 78    ; PETSCII n
+ychar                   = 89    ; PETSCII y
+zchar                   = 90    ; PETSCII z
+Achar                   = 97    ; PETSCII A
 DEL                     = 127   ; ASCII delete
 F1                      = 133   ; PETSCII F1
 F3                      = 134   ; PETSCII F3
@@ -66,6 +74,10 @@ clear_screen            = 147   ; PETSCII clear screen
 insert                  = 148   ; PETSCII insert
 cursor_left             = 157   ; PETSCII cursor left
 underscore              = 164   ; PETSCII underscore
+
+bit_opcode              = $2c
+ldx_opcode              = $ae
+sta_opcode              = $8d
 
 accumlator_save         = $03
 dpx_flag                = $1f   ; bit7: 0=full, 1=half
@@ -99,11 +111,12 @@ NMINV                   = $0318 ; Vector: Non-Maskable Interrupt
 
 
 sprite_data_base_addr   = $2000
-offset_rcv  = 0  ; RCV sprite
-offset_dpx  = 1  ; DPX sprite
-offset_64t  = 2  ; 64T sprite
-offset_ermi = 3  ; ERMI sprite
-offset_nal  = 4  ; NAL sprite
+offset_rcv              = 0  ; RCF sprite
+offset_dpx              = 1  ; DPX sprite
+offset_fmt              = 2  ; FMT sprite
+offset_64t              = 3  ; 64T sprite
+offset_ermi             = 4  ; ERMI sprite
+offset_nal              = 5  ; NAL sprite
 
 
 ; Receive buffer size: $6000 bytes => 24,576 bytes => 24K
@@ -123,82 +136,38 @@ modem_device_no         = 2
 printer_file_no         = 4
 printer_device_no       = 4
 
-; From Mapping the Commodore 64, Sheldon Leemon
-; https://github.com/Project-64/reloaded/blob/master/c64/mapc64/MAPC6412.TXT
 
-SP0X     = $d000 ; Sprite 0 Horizontal Position
-SP0Y     = $d001 ; Sprite 0 Vertical Position
-SP1X     = $d002 ; Sprite 1 Horizontal Position
-SP1Y     = $d003 ; Sprite 1 Vertical Position
-SP2X     = $d004 ; Sprite 2 Horizontal Position
-SP2Y     = $d005 ; Sprite 2 Vertical Position
-SP3X     = $d006 ; Sprite 3 Horizontal Position
-SP3Y     = $d007 ; Sprite 3 Vertical Position
-SP4X     = $d008 ; Sprite 4 Horizontal Position
-SP4Y     = $d009 ; Sprite 4 Vertical Position
-SP5X     = $d00a ; Sprite 5 Horizontal Position
-SP5Y     = $d00b ; Sprite 5 Vertical Position
-MSIGX    = $d010 ; Most Significant Bits of Sprites 0-7 Horizontal Position
-SCROLY   = $d011 ; Vertical fine scrolling and control register
-                 ; bits0-2: Fine scroll display vertically by X scan lines (0-7)
-                 ; bit3:    Select a 24-row or 25-row text display (1=25 rows, 0=24 rows)
-                 ; bit4:    Blank the entire screen to the same color as the background (0=blank)
-                 ; bit5:    Enable bitmap graphics mode (1=enable)
-                 ; bit6:    Enable extended color text mode (1=enable)
-                 ; bit7:    High bit (Bit 8) of raster compare register at 53266 ($D012)
+           .import newmodem_start
+newmodem_setup  = newmodem_start
+newmodem_inable = newmodem_start+3
+newmodem_disabl = newmodem_start+6
 
-SPENA    = $d015 ; Sprite enable register
-YXPAND   = $d017 ; Sprite Vertical Expansion Register
-VMCSB    = $d018 ; VIC-II Chip Memory Control Register
-XXPAND   = $d01d ; Sprite Horizontal Expansion Register
-SPMC     = $d01c ; Sprite Multicolor Registers
-EXTCOL   = $d020 ; Border Color Register
-BGCOL0   = $d021 ; Background Color
-SP0COL   = $d027 ; Sprite Color Register 0
-SP1COL   = $d028 ; Sprite Color Register 1
-SP2COL   = $d029 ; Sprite Color Register 2
-SP3COL   = $d02a ; Sprite Color Register 3
-SP4COL   = $d02b ; Sprite Color Register 4
-SP5COL   = $d02c ; Sprite Color Register 5
-SP6COL   = $d02d ; Sprite Color Register 6
-SP7COL   = $d02e ; Sprite Color Register 7
+; C64 kernal addresses not in cbm_kernal.inc
+USKINDIC                = $f6bc ; Update Stop key indicator, at memory address $0091, A and X registers used
 
-; $dd00-$dd0F CIA #2 Registers
-CI2PRA   = $dd00 ; Data Port Register A
-CI2ICR   = $dd0d ; Interrupt Control Register
+           .segment "LOADADDR"
+           .import __LOADADDR__
+           .word   __LOADADDR__
 
-; C64 kernal addresses
-USKINDIC = $f6bc ; Update Stop key indicator, at memory address $0091, A and X registers used
-UNLSTN   = $ffae ; Comand serial bus device to UNLISTEN
-READST   = $ffb7 ; Read I/O status word
-SETLFS   = $ffba ; Set logical file parameters
-SETNAM   = $ffbd ; Set filename parameters
-OPEN     = $ffc0 ; Open a logical file
-CLOSE    = $ffc3 ; Close a logical file
-CHKIN    = $ffc6 ; Define an input channel
-CHKOUT   = $ffc9 ; Define an output channel
-CLRCHN   = $ffcc ; Restore input and output device to defaults (keyboard, screen)
-CHROUT   = $ffd2 ; Output a byte from the accumulator
-STOP     = $ffe1 ; Check the STOP key
-GETIN    = $ffe4 ; Get one byte from the input device into the accumulator
-CLALL    = $ffe7 ; Close all logical I/O files
-
-           org $0801
-
+           .segment "EXEHDR"
+startofexeheader:
            ; 0 SYS2304:REM  * * 64 TERMINAL NG * *
-           dc.w endofbootstrapper
-           hex 00 00
-           hex 9e 32 33 30 34 3a 8f
-           dc "  * * 64 TERMINAL NG * *"
-           hex 00
-endofbootstrapper:
-           hex 00 00
+           .word endofbasicprogram
+           .byte $00, $00 ; 0
+           .byte $9e      ; SYS
+           .byte $30 + .lobyte ((start .mod 10000) / 1000)
+           .byte $30 + .lobyte ((start .mod 1000) / 100)
+           .byte $30 + .lobyte ((start .mod 100) / 10)
+           .byte $30 + .lobyte ((start .mod 10) / 1)
+           .byte $3a      ; :
+           .byte $8f      ; REM
+           .asciiz "  * * 64 terminal ng * *"
 
-           ds.b start-*, 0
+endofbasicprogram:
+           .byte 0, 0
 
-           org $0900
+           .segment "CODE"
 start:
-           subroutine
            jsr clear_both_screens
            lda #toggle_charset
            jsr CHROUT
@@ -209,10 +178,10 @@ start:
            lda #>endof_basic_addr
            sta MEMSIZ1+1
            lda #%00010111          ; scroll 7, 24 rows
-           sta SCROLY
+           sta VIC_CTRL1
            lda #0                  ; black
-           sta EXTCOL
-           sta BGCOL0
+           sta VIC_BORDERCOLOR
+           sta VIC_BG_COLOR0
            lda #1                  ; white
            sta COLOR
 
@@ -226,7 +195,6 @@ start:
            sta screen_select_flag
            jsr print_title_message_to_screen
 reset:
-           subroutine
            lda #1                  ; white
            sta COLOR
            jsr init_sprites
@@ -240,55 +208,54 @@ reset:
            jsr open_printer_device
            jsr open_modem_device
 main:
-           subroutine
            jsr CLRCHN
            jsr GETIN
-           beq .go_get_char_from_modem
+           beq @go_get_char_from_modem
            cmp #stop_char
            beq main
            ; Accept 0-128,130-141,147,148,160-255
            cmp #$80
-           bcc .continue_handle_char_from_kbd
+           bcc @continue_handle_char_from_kbd
            cmp #$81
-           beq .go_get_char_from_modem
+           beq @go_get_char_from_modem
            cmp #$8e
-           bcc .continue_handle_char_from_kbd
+           bcc @continue_handle_char_from_kbd
            cmp #clear_screen
-           beq .continue_handle_char_from_kbd
+           beq @continue_handle_char_from_kbd
            cmp #insert
-           beq .continue_handle_char_from_kbd
+           beq @continue_handle_char_from_kbd
            cmp #$a0
-           bcs .continue_handle_char_from_kbd
-.go_get_char_from_modem:
+           bcs @continue_handle_char_from_kbd
+@go_get_char_from_modem:
            jmp get_char_from_modem
 
-.continue_handle_char_from_kbd:
+@continue_handle_char_from_kbd:
            cmp #F1                ; turn off RCV
-           bne .next2
+           bne @next2
            bit rcv_flag
-           bmi .test_rcv_notadded_flag
+           bmi @test_rcv_notadded_flag
            jmp main
-.test_rcv_notadded_flag:
+@test_rcv_notadded_flag:
            bit rcv_notadded_flag
-           bmi .skip_cr
+           bmi @skip_cr
            lda #CR
            jsr output_char_to_screen
-.skip_cr:
+@skip_cr:
            lda #0                 ; clear
            sta rcv_flag
            jsr indicate_rcv_flag
            jmp main
-.next2:
+@next2:
            cmp #F2                ; turn on RCV
-           bne .next3
+           bne @next3
            bit rcv_buffer_full_flag
-           bpl .rcv_buffer_not_full
+           bpl @rcv_buffer_not_full
            jmp main               ; dont bother since buffer full
-.rcv_buffer_not_full:
+@rcv_buffer_not_full:
            bit rcv_flag
-           bpl .set_rcv_flag
+           bpl @set_rcv_flag
            jmp main
-.set_rcv_flag:
+@set_rcv_flag:
            lda #CR
            jsr output_char_to_screen
            lda #$80
@@ -296,101 +263,97 @@ main:
            sta rcv_notadded_flag
            jsr indicate_rcv_flag
            jmp main
-.next3:
+@next3:
            cmp #F3                ; turn on DPX
-           bne .next4
+           bne @next4
            lda #0                 ; full
            sta dpx_flag
            jsr indicate_dpx_config
            jmp main
-.next4:
+@next4:
            cmp #F4                ; turn off DPX
-           bne .next6
+           bne @next6
            lda #$80               ; half
            sta dpx_flag
            jsr indicate_dpx_config
            jmp main
-.next6:    cmp #F6                ; reset
-           bne .next7
+@next6:    cmp #F6                ; reset
+           bne @next7
            jmp reset
-.next7:
+@next7:
            cmp #F7
-           bne .next8
+           bne @next8
            jmp dump_rcv_buffer_to_screen
-.next8:
+@next8:
            cmp #F8
-           bne .next9
+           bne @next9
            jmp dump_rcv_buffer_to_printer
-.next9:
+@next9:
            cmp #insert
-           bne .next10
+           bne @next10
            lda #DEL
            jmp output_char_to_modem_with_dpx_echo
-.next10:
+@next10:
            cmp #$ba               ; unknown
-           bne .next11
+           bne @next11
            lda #$60               ; PETSCII horizontal line
            jmp output_char_to_modem_with_dpx_echo
-.next11:
+@next11:
            cmp #clear_screen
-           bne .next12
+           bne @next12
            jsr output_clear_and_cursor_down_to_screen
            jmp main
-.next12:
+@next12:
            cmp #shift_return
-           bne .next13
+           bne @next13
            and #$7f
-.next13:
+@next13:
            cmp #CR
            beq output_char_to_modem_with_dpx_echo
            cmp #delete
-           bne .next14
+           bne @next14
            bit charset_flag
-           bmi .dont_convert_delete
+           bmi @dont_convert_delete
            lda #BS
-.dont_convert_delete:
+@dont_convert_delete:
            jmp output_char_to_modem_with_dpx_echo
-.next14:
-           cmp #" "
+@next14:
+           cmp #space
            bcs output_char_to_modem_with_dpx_echo
            jmp main
 
 
 output_char_to_modem_with_dpx_echo:
-           subroutine
            pha
 
            bit dpx_flag
            bpl output_char_to_modem
            jsr output_char_to_screen
 
-
            ; Expects character to output to be on top of the stack
 output_char_to_modem:
-           subroutine
            jsr CLRCHN
            ldx #modem_file_no
            jsr CHKOUT
            pla
            cmp #BS
-           beq .done
+           beq @done
            cmp #DEL
-           beq .done
+           beq @done
            bit charset_flag
-           bmi .done
-.convert_to_ascii:
+           bmi @done
+@convert_to_ascii:
            and #$7f
-           cmp #"A"
-           bcc .done
-           cmp #"Z"+1
-           bcs .done
+           cmp #achar
+           bcc @done
+           cmp #zchar+1
+           bcs @done
            adc #32
-.done:
+@done:
            jsr CHROUT
 
 
 get_char_from_modem:
-           subroutine
            jsr CLRCHN
            ldx #modem_file_no
            jsr CHKIN
@@ -398,44 +361,43 @@ get_char_from_modem:
            pha
            jsr CLRCHN
            pla
-           beq .done
-.handle_char:
+           beq @done
+@handle_char:
            bit charset_flag
-           bmi .output_char_to_screen_then_done
-.handle_ascii_char:
+           bmi @output_char_to_screen_then_done
+@handle_ascii_char:
            and #$7f
            cmp #BS
-           beq .output_char_to_screen_then_done
+           beq @output_char_to_screen_then_done
            cmp #DEL
-           beq .output_char_to_screen_then_done
+           beq @output_char_to_screen_then_done
            cmp #CR
-           beq .output_char_to_screen_then_done
-           cmp #" "
-           bcc .done
-.handle_printable_ascii_char:
-           cmp #"a"
-           bcc .handle_printable_ascii_char2
+           beq @output_char_to_screen_then_done
+           cmp #space
+           bcc @done
+@handle_printable_ascii_char:
+           cmp #Achar
+           bcc @handle_printable_ascii_char2
            sbc #32
-           bne .output_char_to_screen_then_done
-.handle_printable_ascii_char2:
-           cmp #"A"
-           bcc .output_char_to_screen_then_done
-           cmp #"Z"+1
-           bcs .output_char_to_screen_then_done
+           bne @output_char_to_screen_then_done
+@handle_printable_ascii_char2:
+           cmp #achar
+           bcc @output_char_to_screen_then_done
+           cmp #zchar+1
+           bcs @output_char_to_screen_then_done
            adc #32
-.output_char_to_screen_then_done:
+@output_char_to_screen_then_done:
            jsr output_char_to_screen
-.done
+@done:
            jmp main
 
 
 dump_rcv_buffer_to_printer:
-           subroutine
            lda #1
            bit ntsc_flag
-           beq .skip_newmodem_disabl
+           beq @skip_newmodem_disabl
            jsr newmodem_disabl
-.skip_newmodem_disabl:
+@skip_newmodem_disabl:
            lda #0
            sta rcv_flag
            sta rcv_notadded_flag
@@ -446,15 +408,15 @@ dump_rcv_buffer_to_printer:
            ldx #printer_device_no
            jsr CHKOUT
            jsr READST
-           bpl .status_ok
-           ldy #<.err_printer_offline_message
-           lda #>.err_printer_offline_message
+           bpl @status_ok
+           ldy #<err_printer_offline_message
+           lda #>err_printer_offline_message
            jsr output_string_to_screen
-           jmp .done
+           jmp @done
 
-.status_ok:
+@status_ok:
            lda #%00000111         ;  scroll 7, 25 rows
-           sta SCROLY
+           sta VIC_CTRL1
            lda #<startof_rcv_buffer_addr
            sta ptr_lo
            lda #>startof_rcv_buffer_addr
@@ -462,26 +424,26 @@ dump_rcv_buffer_to_printer:
            lda #CR
            jsr CHROUT
 
-.get_nextbyte:
+@get_nextbyte:
            ldy #0
            lda (ptr),y
-           beq .clear_rcv_buffer_then_done
+           beq @clear_rcv_buffer_then_done
            jsr CHROUT
            jsr USKINDIC
            jsr STOP
-           beq .clear_rcv_buffer_then_done ; runstop pressed
+           beq @clear_rcv_buffer_then_done ; runstop pressed
            inc ptr_lo
-           bne .get_nextbyte
+           bne @get_nextbyte
            inc ptr_hi
-           bne .get_nextbyte
+           bne @get_nextbyte
 
-.clear_rcv_buffer_then_done:
+@clear_rcv_buffer_then_done:
            lda #CR
            jsr CHROUT
            jsr init_rcv_buffer_ptr
 
-.done:
-           jsr UNLSTN
+@done:
+           jsr UNLSN
            jsr CLRCHN
            lda #CR
            jsr output_char_to_screen
@@ -489,21 +451,16 @@ dump_rcv_buffer_to_printer:
            jsr CLOSE
            jsr open_modem_device
            lda #%00010111         ; scroll 7, 24 rows
-           sta SCROLY
+           sta VIC_CTRL1
            lda #1
            bit ntsc_flag
-           beq .skip_newmodem_inable
+           beq @skip_newmodem_inable
            jsr newmodem_inable
-.skip_newmodem_inable:
+@skip_newmodem_inable:
            jmp main
 
-.err_printer_offline_message:
-           hex 0d
-           dc "* * * error: pRINTER oFF-lINE * * *"
-           hex 0d 00
 
 clear_both_screens:
-           subroutine
            lda #>hi_screen_addr
            sta HIBASE
            lda #clear_screen
@@ -515,103 +472,100 @@ clear_both_screens:
            lda #0                 ; select low screen
            sta screen_select_flag
            lda #(lo_screen_nybble << 4 | 6) ; 0001 0110  video matrix: 1*1k=$400, set low screen
-           sta VMCSB
+           sta VIC_VIDEO_ADR
            lda #%00010111         ; scroll 7, 24 rows
-           sta SCROLY
+           sta VIC_CTRL1
            lda #CR
            jsr CHROUT
            lda #0                 ; disable all sprites
-           sta SPENA
+           sta VIC_SPR_ENA
            rts
 
 
 delay_256x160:
-           subroutine
            ldx #160
-.loop_outer:
+@loop_outer:
            ldy #0
-.loop_inner:
+@loop_inner:
            dey
-           bne .loop_inner
+           bne @loop_inner
            dex
-           bne .loop_outer
+           bne @loop_outer
            rts
 
 
 output_char_to_screen:
-           subroutine
-           bit rcv_flag
-           bpl .skip_buffering
+            bit rcv_flag
+           bpl @skip_buffering
            jsr to_rcv_buffer
-.skip_buffering:
+@skip_buffering:
            cmp #CR
-           bne .is_not_cr
+           bne @is_not_cr
            jsr output_space_and_cursor_left_to_screen
-.is_cr:
+@is_cr:
            lda #CR
-           bne .chrout_and_fine_scroll_if_needed
-.is_not_cr:
+           bne @chrout_and_fine_scroll_if_needed
+@is_not_cr:
            bit charset_flag
-           bmi .is_petscii
+           bmi @is_petscii
            cmp #BS
-           beq .is_backspace
+           beq @is_backspace
            cmp #DEL
-           beq .is_backspace
-           bne .is_not_backspace
-.is_petscii:
+           beq @is_backspace
+           bne @is_not_backspace
+@is_petscii:
            cmp #delete
-           bne .is_not_backspace
-.is_backspace:
+           bne @is_not_backspace
+@is_backspace:
            jsr output_backspace_to_screen
            jmp fine_scroll_one_line_if_needed
-.is_not_backspace:
+@is_not_backspace:
            cmp #quote
-           bne .chrout_and_fine_scroll_if_needed
+           bne @chrout_and_fine_scroll_if_needed
            jsr CHROUT
            lda #quote
            jsr CHROUT
            lda #cursor_left
-.chrout_and_fine_scroll_if_needed:
+@chrout_and_fine_scroll_if_needed:
            jsr CHROUT
 
 
 fine_scroll_one_line_if_needed:
-           subroutine
            bit show_cursor_flag
-           bpl .next
+           bpl @next
            lda #underscore
            jsr CHROUT
            lda #cursor_left
            jsr CHROUT
-.next:
+@next:
            lda TBLX
            cmp #23
            bcs fine_scroll_one_line
            rts
 
 
+screen_copy_offset = 22*40 - 3*$100
+
+
 fine_scroll_one_line:
-           subroutine
-           stx .save_x
-           sty .save_y
+           stx save_x
+           sty save_y
 
            ; copy to opposite screen one line up
 
            ldy #39
-           lda #" "
+           lda #space
            bit screen_select_flag
-           bmi .loop1_lo
+           bmi @loop1_lo
 
            ; on low screen
-.loop1_hi:
+@loop1_hi:
            sta hi_screen_addr+23*40,y
            dey
-           bpl .loop1_hi
-
-screen_copy_offset = 22*40 - 3*$100
+           bpl @loop1_hi
 
            ldy #0
-.loop2_hi:
+@loop2_hi:
            lda lo_screen_addr+2*40+screen_copy_offset+2*$100,y
            sta hi_screen_addr+1*40+screen_copy_offset+2*$100,y
            lda lo_screen_addr+2*40+screen_copy_offset+$100,y
@@ -625,25 +579,25 @@ screen_copy_offset = 22*40 - 3*$100
            sta $da00,y   ; color ram: set foreground color
            sta $db00,y   ; color ram: set foreground color
            iny
-           bne .loop2_hi
+           bne @loop2_hi
 
            ldy #screen_copy_offset
-.loop3_hi:
+@loop3_hi:
            lda lo_screen_addr+2*40,y
            sta hi_screen_addr+1*40,y
            dey
-           bpl .loop3_hi
-           bmi .do_fine_scroll
+           bpl @loop3_hi
+           bmi @do_fine_scroll
 
            ; on high screen
-.loop1_lo:
+@loop1_lo:
            sta lo_screen_addr+23*40,y
            dey
-           bpl .loop1_lo
+           bpl @loop1_lo
 
            ldy #0
 
-.loop2_lo:
+@loop2_lo:
            lda hi_screen_addr+2*40+screen_copy_offset+2*$100,y
            sta lo_screen_addr+1*40+screen_copy_offset+2*$100,y
            lda hi_screen_addr+2*40+screen_copy_offset+$100,y
@@ -651,58 +605,57 @@ screen_copy_offset = 22*40 - 3*$100
            lda hi_screen_addr+2*40+screen_copy_offset,y
            sta lo_screen_addr+1*40+screen_copy_offset,y
            iny
-           bne .loop2_lo
+           bne @loop2_lo
 
            ldy #screen_copy_offset
-.loop3_lo:
+@loop3_lo:
            lda hi_screen_addr+2*40,y
            sta lo_screen_addr+1*40,y
            dey
-           bpl .loop3_lo
+           bpl @loop3_lo
 
-.do_fine_scroll:
+@do_fine_scroll:
            ldy #7
-.loop1:
-           bit SCROLY
-           bpl .loop1             ; wait until raster is off visible screen
+@loop1:
+           bit VIC_CTRL1
+           bpl @loop1             ; wait until raster is off visible screen
 
-           dec SCROLY             ; fine scroll one line
+           dec VIC_CTRL1             ; fine scroll one line
 
            ldx #200
-.delay:
+@delay:
            dex
-           bne .delay
+           bne @delay
 
            dey
-           bne .loop1
+           bne @loop1
 
-.loop2:
-           bit SCROLY
-           bpl .loop2             ; wait until raster is off visible screen
-
+@loop2:
+           bit VIC_CTRL1
+           bpl @loop2             ; wait until raster is off visible screen
            ; swap screens to implement carriage return
 
            bit screen_select_flag
-           bmi .swap_to_lo_screen
+           bmi @swap_to_lo_screen
 
-.swap_to_hi_screen:
+@swap_to_hi_screen:
            lda #(hi_screen_nybble << 4 | 6) ; 1010 0110  video matrix: 10*1k=$2800
-           sta VMCSB
+           sta VIC_VIDEO_ADR
            sta screen_select_flag
            lda #>hi_screen_addr
            sta HIBASE
-           bne .done
-.swap_to_lo_screen:
+           bne @done
+@swap_to_lo_screen:
            lda #(lo_screen_nybble << 4 | 6) ; 0001 0110  video matrix: 1*1k=$400
-           sta VMCSB
+           sta VIC_VIDEO_ADR
            lda #>lo_screen_addr
            sta HIBASE
            sta screen_select_flag
-.done:
+@done:
            lda #%00010111         ; scroll 7, 24 rows
-           sta SCROLY
-           ldy .save_y
-           ldx .save_x
+           sta VIC_CTRL1
+           ldy save_y
+           ldx save_x
            lda #22
            sta TBLX
            lda #cursor_up
@@ -714,12 +667,10 @@ screen_copy_offset = 22*40 - 3*$100
            lda #cursor_left
            jsr CHROUT
            rts
-.save_y:   dc 0
-.save_x:   dc 0
+
 
 output_space_and_cursor_left_to_screen:
-           subroutine
-           lda #" "
+           lda #space
            jsr CHROUT
            lda #cursor_left
            jsr CHROUT
@@ -727,67 +678,62 @@ output_space_and_cursor_left_to_screen:
 
 
 output_backspace_to_screen:
-           subroutine
            lda #0
-           sta .move_cursor_up_oneline_flag
+           sta move_cursor_up_oneline_flag
            lda PNTR
-           bne .cursor_not_at_startof_line
+           bne @cursor_not_at_startof_line
            lda #$80
-           sta .move_cursor_up_oneline_flag
+           sta move_cursor_up_oneline_flag
            lda TBLX
            cmp #3
-           bcc .done
-.cursor_not_at_startof_line:
+           bcc @done
+@cursor_not_at_startof_line:
            jsr output_space_and_cursor_left_to_screen
            lda #cursor_left
            jsr CHROUT
-           bit .move_cursor_up_oneline_flag
-           bpl .done
+           bit move_cursor_up_oneline_flag
+           bpl @done
            dec TBLX               ; move current cursor up one physical line
-.done:
+@done:
            rts
-.move_cursor_up_oneline_flag:
-           dc 0
+
 
 output_string_to_screen:
-           subroutine
            sty ptr_lo
            sta ptr_hi
            ldy #0
-.next:
+@next:
            lda (ptr),y
-           beq .done              ; strings are zero-terminated
+           beq @done              ; strings are zero-terminated
            jsr output_char_to_screen
            iny
-           bne .next
+           bne @next
            inc ptr_hi
-           bne .next
-.done:
+           bne @next
+@done:
            rts
 
 
 delay_onethirdsec:
-           subroutine
            ldx #0
-.loop1:
+@loop1:
            ldy #0
-.loop2:
+@loop2:
            dey
-           bne .loop2
+           bne @loop2
            dex
-           bne .loop1
+           bne @loop1
            rts
 
 
 print_title_message_to_screen:
-           subroutine
            lda #0
            sta rcv_flag
            ldx #20
            stx TBLX
 
-           ldy #<.title_message
-           lda #>.title_message
+           ldy #<title_message
+           lda #>title_message
            jsr output_string_to_screen
 
            jsr output_space_and_cursor_left_to_screen
@@ -804,26 +750,8 @@ print_title_message_to_screen:
            jsr delay_onethirdsec
            rts
 
-.title_message:
-           hex 91
-              ;----------------------------------------
-           dc "             64 terminal ng"
-           hex 0d 0d 0d 0d
-           dc "      oRIGINAL BY dR. jIM rOTHWELL"
-           hex 0d 0d
-           dc "                C. 1983"
-           hex 0d 0d 0d 0d 0d
-           dc "       ng VERSION BY mIKE mURPHY"
-           hex 0d 0d
-           dc "            MIKE@EMU7800.NET"
-           hex 0d 0d
-           dc "                C. 2023"
-           hex 0d 0d 0d 0d
-           hex 00
-
 
 accept_presets_menu:
-           subroutine
            lda #0
            sta NDX
            sta rcv_flag
@@ -845,73 +773,73 @@ accept_presets_menu:
            lda #>ntsc_baud_1200
            sta serial_config+3
 
-.presets_start:
-           ldy #<.presets
-           lda #>.presets
+presets_start:
+           ldy #<presets
+           lda #>presets
            jsr output_string_to_screen
-.accept_q:
+@accept_q:
            jsr GETIN
            cmp #CR
-           beq .accept_y
-           cmp #"Y"
-           beq .accept_y
-           cmp #"N"
-           beq .tv_start
-           bne .accept_q
-.accept_y:
-           lda #"Y"
+           beq @accept_y
+           cmp #ychar
+           beq @accept_y
+           cmp #nchar
+           beq @tv_start
+           bne @accept_q
+@accept_y:
+           lda #ychar
            jsr output_char_to_screen
-           jmp .done
-.tv_start:
+           jmp @done
+@tv_start:
            jsr delay_onethirdsec
            jsr output_clear_and_cursor_down_to_screen
-           ldy #<.presets_tv
-           lda #>.presets_tv
+           ldy #<presets_tv
+           lda #>presets_tv
            jsr output_string_to_screen
-.tv_q:
+@tv_q:
            jsr GETIN
-           beq .tv_q
-           cmp #"1"
-           bne .tv_n1
+           beq @tv_q
+           cmp #$31
+           bne @tv_n1
            jsr output_char_to_screen
            lda #$80
            sta ntsc_flag
-           bne .baud_start
-.tv_n1:
-           cmp #"2"
-           bne .tv_n2
+           bne @baud_start
+@tv_n1:
+           cmp #$32
+           bne @tv_n2
            jsr output_char_to_screen
            lda #0
            sta ntsc_flag
-           beq .baud_start
+           beq @baud_start
 ; temporary options to switch on 'newmodem'
-.tv_n2:
-           cmp #"3"
-           bne .tv_n3
+@tv_n2:
+           cmp #$34
+           bne @tv_n3
            jsr output_char_to_screen
            lda #$81
            sta ntsc_flag
-           bne .baud_start
-.tv_n3:
-           cmp #"4"
-           bne .tv_q
+           bne @baud_start
+@tv_n3:
+           cmp #$34
+           bne @tv_q
            jsr output_char_to_screen
            lda #1
            sta ntsc_flag
-;
-.baud_start
+
+@baud_start:
            jsr delay_onethirdsec
            jsr output_clear_and_cursor_down_to_screen
-           ldy #<.presets_baud
-           lda #>.presets_baud
+           ldy #<presets_baud
+           lda #>presets_baud
            jsr output_string_to_screen
-.baud_q:
+@baud_q:
            jsr GETIN
-           beq .baud_q
-           cmp #"1"
-           bcc .baud_q
-           cmp #"4"
-           bcs .baud_q
+           beq @baud_q
+           cmp #$31
+           bcc @baud_q
+           cmp #$34
+           bcs @baud_q
            pha
            jsr output_char_to_screen
            pla
@@ -920,19 +848,19 @@ accept_presets_menu:
            dex
            stx baud_selection
            bit ntsc_flag
-           bmi .baud_ntsc
-.baud_pal:
-           lda .pal_baud_settings_lo,x
+           bmi @baud_ntsc
+@baud_pal:
+           lda pal_baud_settings_lo,x
            sta serial_config+2
-           lda .pal_baud_settings_hi,x
+           lda pal_baud_settings_hi,x
            sta serial_config+3
-           jmp .set_8n1
-.baud_ntsc:
-           lda .ntsc_baud_settings_lo,x
+           jmp @set_8n1
+@baud_ntsc:
+           lda ntsc_baud_settings_lo,x
            sta serial_config+2
-           lda .ntsc_baud_settings_hi,x
+           lda ntsc_baud_settings_hi,x
            sta serial_config+3
-.set_8n1:
+@set_8n1:
            lda serial_config
            and #%10011111         ; 8 bit
            and #%01111111         ; 1 stop bit
@@ -940,160 +868,74 @@ accept_presets_menu:
            lda serial_config+1
            and #%00011111         ; no parity
            sta serial_config+1
-.charset_start:
+@charset_start:
            jsr delay_onethirdsec
            jsr output_clear_and_cursor_down_to_screen
-           ldy #<.presets_charset
-           lda #>.presets_charset
+           ldy #<presets_charset
+           lda #>presets_charset
            jsr output_string_to_screen
-.charset_q:
+@charset_q:
            jsr GETIN
-           beq .charset_q
-           cmp #"1"
-           bne .charset_n1
+           beq @charset_q
+           cmp #$31
+           bne @charset_n1
            jsr output_char_to_screen
            lda #0
            sta charset_flag
-           beq .done
-.charset_n1:
-           cmp #"2"
-           bne .charset_q
+           beq @done
+@charset_n1:
+           cmp #$32
+           bne @charset_q
            jsr output_char_to_screen
            lda #$80
            sta charset_flag
-.done:
+@done:
            jsr delay_onethirdsec
            jsr output_clear_and_cursor_down_to_screen
            jsr config_colors
            lda #$ff               ; turn on all sprites
-           sta SPENA
+           sta VIC_SPR_ENA
            jsr output_cursor_home_and_cursor_down
-           ldy #<.help_text
-           lda #>.help_text
+           ldy #<help_text
+           lda #>help_text
            jsr output_string_to_screen
            lda #1
            bit ntsc_flag
-           beq .done2
-           bpl .palsetup
-.ntscsetup:
+           beq @done2
+           bpl @palsetup
+@ntscsetup:
            lda baud_selection
-           jmp .setup
-.palsetup:
+           jmp @setup
+@palsetup:
            lda baud_selection
            adc #4
-.setup:
+@setup:
            jsr newmodem_setup
-.done2:
+@done2:
            rts
-.presets:
-           dc "***PRESETS***"
-           hex 0d 0d
-           dc "TV: NTSC"
-           hex 0d
-           dc "BAUD: 1200"
-           hex 0d
-           dc "WORDSIZE: 8 BITS"
-           hex 0d
-           dc "PARITY: NONE"
-           hex 0d
-           dc "STOPBITS: 1"
-           hex 0d
-           dc "CHARSET: ASCII"
-           hex 0d 0d
-           dc "ACCEPT PRESETS? "
-           dc 0
-.presets_tv:
-           dc "***TV***"
-           hex 0d 0d
-           dc "1. NTSC"
-           hex 0d
-           dc "2. PAL"
-           hex 0d 0d
-           dc "SELECTION? "
-           dc 0
-.presets_baud:
-           dc "***BAUD***"
-           hex 0d 0d
-           dc "1. 2400"
-           hex 0d
-           dc "2. 1200"
-           hex 0d
-           dc "3.  300"
-           hex 0d 0d
-           dc "SELECTION? "
-           dc 0
-.presets_charset:
-           dc "***CHARSET***"
-           hex 0d 0d
-           dc "1. ASCII"
-           hex 0d
-           dc "2. PETSCII"
-           hex 0d 0d
-           dc "SELECTION? "
-           dc 0
-.help_text:
-           hex 0d
-           dc "f1/f2  rEcEIvE BUFFER TOGGLE          "
-           hex 0d
-           dc "f3/f4  hALF dUpLEx TOGGLE             "
-           hex 0d
-           dc "f6     rESET PROGRAM     "
-           hex 0d
-           dc "f7     rEVIEW rcv BUFFER, SPACE PAUSES"
-           hex 0d
-           dc "         f7 AGAIN STOPS REVIEW        "
-           hex 0d
-           dc "f8     dUMP rcv BUFFER TO PRINTER,    "
-           hex 0d
-           dc "         runstop STOPS PRINTING       "
-           hex 0d 0d
-           hex 00
-
-baud_selection:
-           dc 0
-
-.ntsc_baud_settings_lo:
-           dc <ntsc_baud_2400     ; (1) 2400 baud lo
-           dc <ntsc_baud_1200     ; (2) 1200 baud lo
-           dc <ntsc_baud_300      ; (3)  300 baud lo
-.ntsc_baud_settings_hi:
-           dc >ntsc_baud_2400     ; (1) 2400 baud hi
-           dc >ntsc_baud_1200     ; (2) 1200 baud hi
-           dc >ntsc_baud_300      ; (3)  300 baud hi
-
-.pal_baud_settings_lo:
-           dc <pal_baud_2400      ; (1) 2400 baud lo
-           dc <pal_baud_1200      ; (2) 1200 baud lo
-           dc <pal_baud_300       ; (3)  300 baud lo
-.pal_baud_settings_hi:
-           dc >pal_baud_2400      ; (1) 2400 baud hi
-           dc >pal_baud_1200      ; (2) 1200 baud hi
-           dc >pal_baud_300       ; (3)  300 baud hi
 
 
 config_colors:
-           subroutine
            lda #0                 ; black
-           sta EXTCOL
-           sta BGCOL0
+           sta VIC_BORDERCOLOR
+           sta VIC_BG_COLOR0
            lda #1                 ; white
            sta COLOR
            lda #$f                ; gray
-           sta SP0COL
-           sta SP1COL
-           sta SP2COL
-           sta SP3COL
-           sta SP4COL
+           sta VIC_SPR0_COLOR
+           sta VIC_SPR1_COLOR
+           sta VIC_SPR2_COLOR
+           sta VIC_SPR3_COLOR
+           sta VIC_SPR4_COLOR
            rts
 
 
 indicate_dpx_config:
-           subroutine
            ldx #6
            ldy #2
            bit dpx_flag
-           bmi .set_indication
-.clear_indication:
+           bmi @set_indication
+@clear_indication:
            lda sprite_data_base_addr+offset_dpx*64,y
            and #%11000000
            sta sprite_data_base_addr+offset_dpx*64,y
@@ -1101,9 +943,9 @@ indicate_dpx_config:
            iny
            iny
            dex
-           bpl .clear_indication
+           bpl @clear_indication
            rts
-.set_indication:
+@set_indication:
            lda sprite_data_base_addr+offset_dpx*64,y
            ora #%00111100
            sta sprite_data_base_addr+offset_dpx*64,y
@@ -1111,16 +953,16 @@ indicate_dpx_config:
            iny
            iny
            dex
-           bpl .set_indication
+           bpl @set_indication
            rts
 
+
 indicate_rcv_flag:
-           subroutine
            ldx #6
            ldy #2
            bit rcv_flag
-           bmi .set_indication
-.clear_indication:
+           bmi @set_indication
+@clear_indication:
            lda sprite_data_base_addr+offset_rcv,y
            and #%11000000
            sta sprite_data_base_addr+offset_rcv,y
@@ -1128,9 +970,9 @@ indicate_rcv_flag:
            iny
            iny
            dex
-           bpl .clear_indication
+           bpl @clear_indication
            rts
-.set_indication:
+@set_indication:
            lda sprite_data_base_addr+offset_rcv,y
            ora #%00111100
            sta sprite_data_base_addr+offset_rcv,y
@@ -1138,12 +980,11 @@ indicate_rcv_flag:
            iny
            iny
            dex
-           bpl .set_indication
+           bpl @set_indication
            rts
 
 
 open_modem_device:
-           subroutine
            lda #modem_file_no
            jsr CLOSE
            lda #4                 ; filename length
@@ -1165,8 +1006,7 @@ open_modem_device:
 
 
 open_printer_device:
-           subroutine
-           lda #0                 ; filename length
+            lda #0                 ; filename length
            jsr SETNAM
            lda #printer_file_no
            ldx #printer_device_no
@@ -1177,7 +1017,6 @@ open_printer_device:
 
 
 init_rcv_buffer_ptr:
-           subroutine
            lda #<startof_rcv_buffer_addr
            sta rcv_buffer_ptr_lo
            lda #>startof_rcv_buffer_addr
@@ -1193,12 +1032,10 @@ init_rcv_buffer_ptr:
 
 
 output_clear_and_cursor_down_to_screen:
-           subroutine
            lda #clear_screen
            jsr CHROUT
 
 output_cursor_home_and_cursor_down:
-           subroutine
            lda #cursor_home
            jsr CHROUT
            lda #cursor_down
@@ -1206,7 +1043,6 @@ output_cursor_home_and_cursor_down:
            jmp fine_scroll_one_line_if_needed
 
 to_rcv_buffer:
-           subroutine
            ldy #0
            sta accumlator_save
            cmp #BS
@@ -1216,34 +1052,32 @@ to_rcv_buffer:
 
 
 remove_from_rcv_buffer:
-           subroutine
            tya
            sta (rcv_buffer_ptr),y
            lda rcv_buffer_ptr_lo
-           bne .decrement_then_done
+           bne @decrement_then_done
            lda #>startof_rcv_buffer_addr
            cmp rcv_buffer_ptr_hi
-           beq .done
+           beq @done
            dec rcv_buffer_ptr_hi
-.decrement_then_done:
+@decrement_then_done:
            dec rcv_buffer_ptr_lo
-.done:
+@done:
            lda accumlator_save
            rts
 
 
 add_to_rcv_buffer:
-           subroutine
            bit rcv_buffer_full_flag
-           bmi .done
+           bmi @done
            sty rcv_notadded_flag  ; y expected to be zero, so indicate 'added'
            sta (rcv_buffer_ptr),y
            inc rcv_buffer_ptr_lo
-           bne .done
+           bne @done
            inc rcv_buffer_ptr_hi
            lda rcv_buffer_ptr_hi
            cmp MEMSIZ1+1
-           bcc .done
+           bcc @done
            dec rcv_buffer_ptr_hi
            dec rcv_buffer_ptr_lo
            lda #$80               ; set buffer full
@@ -1251,7 +1085,7 @@ add_to_rcv_buffer:
            lda #0
            sta rcv_flag
            jsr indicate_rcv_flag
-.done:
+@done:
            lda #0
            sta (rcv_buffer_ptr),y
            lda accumlator_save
@@ -1259,7 +1093,6 @@ add_to_rcv_buffer:
 
 
 dump_rcv_buffer_to_screen:
-           subroutine
            jsr CLRCHN
            lda #<startof_rcv_buffer_addr
            sta ptr_lo
@@ -1272,28 +1105,28 @@ dump_rcv_buffer_to_screen:
            lda #CR
            jsr output_char_to_screen
 
-.get_and_output_byte:
+@get_and_output_byte:
            ldy #0
            lda (ptr),y
-           beq .done
+           beq @done
            jsr output_char_to_screen
            jsr GETIN
            cmp #F7
-           beq .done
-           cmp #" "
-           bne .increment_ptr
-.pause:
+           beq @done
+           cmp #space
+           bne @increment_ptr
+@pause:
            jsr GETIN
            cmp #F7
-           beq .done
-           cmp #" "
-           bne .pause
-.increment_ptr:
+           beq @done
+           cmp #space
+           bne @pause
+@increment_ptr:
            inc ptr_lo
-           bne .get_and_output_byte
+           bne @get_and_output_byte
            inc ptr_hi
-           bne .get_and_output_byte
-.done:
+           bne @get_and_output_byte
+@done:
            lda #CR
            jsr output_char_to_screen
            lda #modem_file_no
@@ -1303,50 +1136,48 @@ dump_rcv_buffer_to_screen:
 
 
 init_sprites:
-           subroutine
            ldx #$ff               ; set all sprites to double-width
-           stx XXPAND
+           stx VIC_SPR_EXP_X
            lda #0                 ; set all sprites to single-height, single color
-.loop1:
+@loop1:
            sta sprite_data_base_addr,x
            sta sprite_data_base_addr+$100,x
            dex
-           bne .loop1
-
-           sta YXPAND
-           sta SPMC
+           bne @loop1
+           sta VIC_SPR_EXP_Y
+           sta VIC_SPR_MCOLOR
            ldx #20
-.loop2:
-           lda .sprite_data_rcv,x
+@loop2:
+           lda sprite_data_rcv,x
            sta sprite_data_base_addr+offset_rcv*64,x
-           lda .sprite_data_dpx,x
+           lda sprite_data_dpx,x
            sta sprite_data_base_addr+offset_dpx*64,x
-           lda .sprite_data_64t,x
+           lda sprite_data_64t,x
            sta sprite_data_base_addr+offset_64t*64,x
-           lda .sprite_data_ermi,x
+           lda sprite_data_ermi,x
            sta sprite_data_base_addr+offset_ermi*64,x
-           lda .sprite_data_nal,x
+           lda sprite_data_nal,x
            sta sprite_data_base_addr+offset_nal*64,x
            dex
-           bpl .loop2
+           bpl @loop2
            lda #54
-           sta SP0Y
-           sta SP1Y
-           sta SP2Y
-           sta SP3Y
-           sta SP4Y
+           sta VIC_SPR0_Y
+           sta VIC_SPR1_Y
+           sta VIC_SPR2_Y
+           sta VIC_SPR3_Y
+           sta VIC_SPR4_Y
            lda #0
-           sta MSIGX
+           sta VIC_SPR_HI_X
            lda #184
-           sta SP0X
+           sta VIC_SPR0_X
            lda #240
-           sta SP1X
+           sta VIC_SPR1_X
            lda #25
-           sta SP2X
+           sta VIC_SPR2_X
            lda #74
-           sta SP3X
+           sta VIC_SPR3_X
            lda #123
-           sta SP4X
+           sta VIC_SPR4_X
            ldx #(sprite_data_base_addr >> 6) + offset_rcv
            stx lo_screen_addr+sprite_data_ptr_offset
            stx hi_screen_addr+sprite_data_ptr_offset
@@ -1364,60 +1195,157 @@ init_sprites:
            stx hi_screen_addr+sprite_data_ptr_offset+4
            rts
 
-.sprite_data_64t:
-                        ; ------------------------
-           hex 70 40 1f ;  111     1         11111
-           hex 80 c0 04 ; 1       11           1
-           hex 81 40 04 ; 1      1 1           1
-           hex f2 40 04 ; 1111  1  1           1
-           hex 8b e0 04 ; 1   1 11111          1
-           hex 88 40 04 ; 1   1    1           1
-           hex 70 40 04 ;  111     1           1
-.sprite_data_ermi:
-                        ; ------------------------
-           hex fb c8 9c ; 11111 1111  1   1  111
-           hex 82 2d 88 ; 1     1   1 11 11   1
-           hex 82 2a 88 ; 1     1   1 1 1 1   1
-           hex e3 c8 88 ; 111   1111  1   1   1
-           hex 82 88 88 ; 1     1 1   1   1   1
-           hex 82 48 88 ; 1     1  1  1   1   1
-           hex fa 28 9c ; 11111 1   1 1   1  111
-.sprite_data_nal:
-                        ; ------------------------
-           hex 89 c8 00 ; 1   1  111  1
-           hex 8a 28 00 ; 1   1 1   1 1
-           hex ca 28 00 ; 11  1 1   1 1
-           hex ab e8 00 ; 1 1 1 11111 1
-           hex 9a 28 00 ; 1  11 1   1 1
-           hex 8a 28 00 ; 1   1 1   1 1
-           hex 8a 2f 80 ; 1   1 1   1 1111
-.sprite_data_rcv:
-                        ; ------------------------
-           hex f1 c8 80 ; 1111   111  1   1
-           hex 8a 28 80 ; 1   1 1   1 1   1
-           hex 8a 08 80 ; 1   1 1     1   1
-           hex f2 05 00 ; 1111  1      1 1
-           hex a2 05 00 ; 1 1   1      1 1
-           hex 92 22 00 ; 1  1  1   1   1
-           hex 89 c2 00 ; 1   1  111    1
-.sprite_data_dpx:
-                        ; ------------------------
-           hex e3 c8 80 ; 111   1111  1   1
-           hex 92 28 80 ; 1  1  1   1 1   1
-           hex 8a 25 00 ; 1   1 1   1  1 1
-           hex 8b e2 00 ; 1   1 11111   1
-           hex 8a 05 00 ; 1   1 1      1 1
-           hex 92 08 80 ; 1  1  1     1   1
-           hex e2 08 80 ; 111   1     1   1
+           .segment "RODATA"
+sprite_data_64t:
+                               ; ------------------------
+           .byte $70, $40, $1f ;  111     1         11111
+           .byte $80, $c0, $04 ; 1       11           1
+           .byte $81, $40, $04 ; 1      1 1           1
+           .byte $f2, $40, $04 ; 1111  1  1           1
+           .byte $8b, $e0, $04 ; 1   1 11111          1
+           .byte $88, $40, $04 ; 1   1    1           1
+           .byte $70, $40, $04 ;  111     1           1
+sprite_data_ermi:
+                               ; ------------------------
+           .byte $fb, $c8, $9c ; 11111 1111  1   1  111
+           .byte $82, $2d, $88 ; 1     1   1 11 11   1
+           .byte $82, $2a, $88 ; 1     1   1 1 1 1   1
+           .byte $e3, $c8, $88 ; 111   1111  1   1   1
+           .byte $82, $88, $88 ; 1     1 1   1   1   1
+           .byte $82, $48, $88 ; 1     1  1  1   1   1
+           .byte $fa, $28, $9c ; 11111 1   1 1   1  111
+sprite_data_nal:
+                               ; ------------------------
+           .byte $89, $c8, $00 ; 1   1  111  1
+           .byte $8a, $28, $00 ; 1   1 1   1 1
+           .byte $ca, $28, $00 ; 11  1 1   1 1
+           .byte $ab, $e8, $00 ; 1 1 1 11111 1
+           .byte $9a, $28, $00 ; 1  11 1   1 1
+           .byte $8a, $28, $00 ; 1   1 1   1 1
+           .byte $8a, $2f, $80 ; 1   1 1   1 1111
+sprite_data_rcv:
+                               ; ------------------------
+           .byte $f1, $c8, $80 ; 1111   111  1   1
+           .byte $8a, $28, $80 ; 1   1 1   1 1   1
+           .byte $8a, $08, $80 ; 1   1 1     1   1
+           .byte $f2, $05, $00 ; 1111  1      1 1
+           .byte $a2, $05, $00 ; 1 1   1      1 1
+           .byte $92, $22, $00 ; 1  1  1   1   1
+           .byte $89, $c2, $00 ; 1   1  111    1
+sprite_data_dpx:
+                               ; ------------------------
+           .byte $e3, $c8, $80 ; 111   1111  1   1
+           .byte $92, $28, $80 ; 1  1  1   1 1   1
+           .byte $8a, $25, $00 ; 1   1 1   1  1 1
+           .byte $8b, $e2, $00 ; 1   1 11111   1
+           .byte $8a, $05, $00 ; 1   1 1      1 1
+           .byte $92, $08, $80 ; 1  1  1     1   1
+           .byte $e2, $08, $80 ; 111   1     1   1
 
+title_message:
+                 ;----------------------------------------
+           .byte $91
+           .byte "             64 TERMINAL NG"
+           .byte $0d, $0d, $0d, $0d
+           .byte "                   by"
+           .byte $0d, $0d, $0d, $0d
+           .byte "            Dr. Jim Rothwell"
+           .byte $0d, $0d, $0d, $0d, $0d, $0d
+           .byte "               (C) 1983"
+           .byte $0d, $0d
+           .byte "           Midwest Micro Inc."
+           .byte $0d, 0
 
+presets:
+           .byte "***presets***"
+           .byte $0d, $0d
+           .byte "tv: NTSC"
+           .byte $0d
+           .byte "baud: 1200"
+           .byte $0d
+           .byte "worksize: 8 bits"
+           .byte $0d
+           .byte "parity: none"
+           .byte $0d
+           .byte "stopbits: 1"
+           .byte $0d
+           .byte "charset: ascii"
+           .byte $0d, $0d
+           .byte "accept presets? "
+           .byte 0
+presets_tv:
+           .byte "***tv***"
+           .byte $0d, $0d
+           .byte "1. NTSC"
+           .byte $0d
+           .byte "2. PAL"
+           .byte $0d, $0d
+           .byte "selection? "
+           .byte 0
+presets_baud:
+           .byte "***baud***"
+           .byte $0d, $0d
+           .byte "1. 2400"
+           .byte $0d
+           .byte "2. 1200"
+           .byte $0d
+           .byte "3.  300"
+           .byte $0d, $0d
+           .byte "selection? "
+           .byte 0
+presets_charset:
+           .byte "***charset***"
+           .byte $0d, $0d
+           .byte "1. ASCII"
+           .byte $0d
+           .byte "2. PETSCII"
+           .byte $0d, $0d
+           .byte "selection? "
+           .byte 0
+help_text:
+           .byte $0d
+           .byte "F1/F2  ReCeiVe buffer toggle          "
+           .byte $0d
+           .byte "F3/F4  Half DuPleX toggle             "
+           .byte $0d
+           .byte "F6     Reset program                  "
+           .byte $0d
+           .byte "F7     Review RCV buffer, space pauses"
+           .byte $0d
+           .byte "         F7 again stops review        "
+           .byte $0d
+           .byte "F8     Dump RCV buffer to printer,    "
+           .byte $0d
+           .byte "         RUNSTOP stops printing       "
+           .byte $0d, $0d
+           .byte 0
 
-           org (((* >> 8) + 1) << 8)
-newmodem_start:
-newmodem_setup  = newmodem_start
-newmodem_inable = newmodem_start+3
-newmodem_disabl = newmodem_start+6
-           include "newmodem.asm"
-           newmodem
+err_printer_offline_message:
+           .byte $0d
+           .byte "* * * ERROR: Printer Off-Line * * *"
+           .byte $0d, 0
 
+ntsc_baud_settings_lo:
+           .byte <ntsc_baud_2400     ; (1) 2400 baud lo
+           .byte <ntsc_baud_1200     ; (2) 1200 baud lo
+           .byte <ntsc_baud_300      ; (3)  300 baud lo
+ntsc_baud_settings_hi:
+           .byte >ntsc_baud_2400     ; (1) 2400 baud hi
+           .byte >ntsc_baud_1200     ; (2) 1200 baud hi
+           .byte >ntsc_baud_300      ; (3)  300 baud hi
+pal_baud_settings_lo:
+           .byte <pal_baud_2400      ; (1) 2400 baud lo
+           .byte <pal_baud_1200      ; (2) 1200 baud lo
+           .byte <pal_baud_300       ; (3)  300 baud lo
+pal_baud_settings_hi:
+           .byte >pal_baud_2400      ; (1) 2400 baud hi
+           .byte >pal_baud_1200      ; (2) 1200 baud hi
+           .byte >pal_baud_300       ; (3)  300 baud hi
 
+           .segment "DATA"
+baud_selection:
+           .byte 0
+move_cursor_up_oneline_flag:
+           .byte 0
+save_y:    .byte 0
+save_x:    .byte 0

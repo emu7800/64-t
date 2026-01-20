@@ -1,12 +1,15 @@
 .PHONY: clean
-.DEFAULT_GOAL: 64-t.prg
+.DEFAULT_GOAL: all
 
-objects = 64-t.o
+all: 64-t.prg 64-tng.prg
 
-64-t.prg: $(objects) bin
-	ld65 -o bin/64-t.prg -C 64-t.cfg -m obj/64-t.map.txt $(addprefix obj/, $(objects))
+64-t.prg: 64-t.o bin
+	ld65 -o bin/64-t.prg -C src/64-t.cfg -m obj/64-t.map.txt $(addprefix obj/, 64-t.o)
 
-$(objects): %.o: %.s obj
+64-tng.prg: 64-tng.o newmodem.o bin
+	ld65 -o bin/64-tng.prg -C src/64-tng.cfg -m obj/64-tng.map.txt $(addprefix obj/, 64-tng.o newmodem.o)
+
+64-t.o 64-tng.o newmodem.o: %.o: src/%.s obj
 	ca65 -o obj/$@ -t c64 -l obj/$*.listing.txt $<
 
 bin:
