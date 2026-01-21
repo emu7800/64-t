@@ -2,8 +2,9 @@
 ; Transactor Magazine, volume 9, issue3, February 1989
 ; https://archive.org/details/transactor-magazines-v9-i03/page/n63/mode/2up
 ;
-        .setcpu "6502"
-        .export newmodem_start
+.setcpu "6502"
+.export newmodem_start
+.export restore_key_flag
 
 savy    = $97     ; save register y location
 dfltn   = $99     ; default input device (0=keyboard)
@@ -67,76 +68,20 @@ findfn := $f202
 devnum := $f212
 nofile := $f682
 .else
-        .error "Only C64 and C128 are supported."
+.error "__C64__ or __C128__ are not specified."
 .endif
 
-ntsc_cpuhz = 1022727
-pal_cpuhz  = 985248
-
-topal_factor = pal_cpuhz / ntsc_cpuhz  ; ~.963
-
-; start-bit times
-ntsc_strt24  = 459
-ntsc_strt12  = 1090
-ntsc_strt03  = 4915
-
-pal_strt24  = topal_factor * ntsc_strt24
-pal_strt12  = topal_factor * ntsc_strt12
-pal_strt03  = topal_factor * ntsc_strt03
-
-; full-bit times
-ntsc_full24  = 421
-ntsc_full12  = 845
-ntsc_full03  = 3410
-
-pal_full24  = topal_factor * ntsc_full24
-pal_full12  = topal_factor * ntsc_full12
-pal_full03  = topal_factor * ntsc_full03
-
+.code
 ;--------------------------------------------
 newmodem_start:
 xx00:   jmp setup
-xx03:   jmp inable ;enables RS-232 input function without selecting device #2 for input (do after disk, tape, REU operation)
-xx06:   jmp disabl ;disables RS-232 input function without selecting another device for input (do before disk, tape, REU operation)
-xx09:   jmp rsget  ;get char from RS-232 recv buffer regardless of current input device (carry set if buffer empty)
-xx0c:   jmp rsout  ;put char to RS-232 send buffer regardless of current output device
-
-strttimes:
-        .word ntsc_strt24
-        .word ntsc_strt12
-        .word ntsc_strt03
-        .word ntsc_strt03
-        .word pal_strt24
-        .word pal_strt12
-        .word pal_strt03
-        .word pal_strt03
-
-fulltimes:
-        .word ntsc_full24
-        .word ntsc_full12
-        .word ntsc_full03
-        .word ntsc_full03
-        .word pal_full24
-        .word pal_full12
-        .word pal_full03
-        .word pal_full03
-
+xx03:   jmp inable ; enables RS-232 input function without selecting device #2 for input (do after disk, tape, REU operation)
+xx06:   jmp disabl ; disables RS-232 input function without selecting another device for input (do before disk, tape, REU operation)
+xx09:   jmp rsget  ; get char from RS-232 recv buffer regardless of current input device (carry set if buffer empty)
+xx0c:   jmp rsout  ; put char to RS-232 send buffer regardless of current output device
+        nop
 ;--------------------------------------------
 setup:
-        ; baud setting: acc:
-        ;   0=ntsc2400, 1=ntsc1200, 2=ntsc300, 3=ntsc300,
-        ;   4=pal2400,  5=pal1200,  6=pal300,  7=pal300
-        and #7
-        asl
-        tay
-        lda strttimes,y
-        sta strtlo+1   ;overwrite values in nmi handler
-        lda strttimes+1,y
-        sta strthi+1
-        lda fulltimes,y
-        sta fulllo+1
-        lda fulltimes+1,y
-        sta fullhi+1
         lda #<nmi
         ldy #>nmi
         sta nminv
@@ -152,174 +97,182 @@ setup:
         rts
 ;--------------------------------------------
 nmi64:
-        pha            ;new nmi handler
+        pha            ; new nmi handler
         txa
         pha
         tya
         pha
 nmi128:
         cld
-        ldx ti2bhi     ;sample timer b hi byte (3060)
-        lda #%00011111 ;disable cia nmi's
+        ldx ti2bhi     ; sample timer b hi byte (3060)
+        lda #%01111111 ; disable cia nmi's
         sta ci2icr
-        lda ci2icr     ;read/clear flags (3090)
-        bpl notcia     ;(restore key)
-        cpx ti2bhi     ;tb timeout since 3060? (3110)
-        ldy ci2prb     ;(sample pin c)
-        bcs @mask      ;no
-        ora #%00000010 ;yes, set flag in acc.
-        ora ci2icr     ;read/clear flags again
+        lda ci2icr     ; read/clear flags (3090)
+        bpl notcia     ; (restore key)
+        cpx ti2bhi     ; tb timeout since 3060? (3110)
+        ldy ci2prb     ; (sample pin c)
+        bcs @mask      ; no
+        ora #%00000010 ; yes, set flag in acc.
+        ora ci2icr     ; read/clear flags again
 @mask:
-        and enabl      ;mask out non-enabled
-        tax            ;these must be serviced
-        lsr            ;timer a? (bit 0)
-        bcc @ckflag    ;no
-        lda ci2pra     ;yes, put bit on pin M (PA2)
+        and enabl      ; mask out non-enabled
+        tax            ; these must be serviced
+        lsr            ; timer a? (bit 0)
+        bcc @ckflag    ; no
+        lda ci2pra     ; yes, put bit on pin M (PA2)
         and #%11111011
         ora nxtbit
         sta ci2pra
 @ckflag:
         txa
-        and #%00010000 ;*flag nmi? (bit 4)
-        beq nmion      ;no
+        and #%00010000 ; *flag nmi? (bit 4)
+        beq nmion      ; no
 strtlo:
-        lda #%01000010 ;yes, start-bit to tb
+        lda #%01000010 ; yes, start-bit to tb
         sta ti2blo
 strthi:
         lda #%00000100
         sta ti2bhi
-        lda #%00010001 ;start tb counting
+        lda #%00010001 ; start tb counting
         sta ci2crb
-        lda #%00010010 ;*flag nmi off, tb on
-        eor enabl      ;update mask
+        lda #%00010010 ; *flag nmi off, tb on
+        eor enabl      ; update mask
         sta enabl
-        sta ci2icr     ;enable new config.
+        sta ci2icr     ; enable new config
 fulllo:
-        lda #%01001101 ;change reload latch
-        sta ti2blo     ;  to full-bit time
+        lda #%01001101 ; change reload latch
+        sta ti2blo     ;   to full-bit time
 fullhi:
         lda #%00000011
         sta ti2bhi
-        lda #8         ;# of bits to receive
+        lda #8         ; # of bits to receive
         sta bitci
-        bne chktxd     ;branch always
+        bne chktxd     ; branch always
 
 notcia:
+        ldy #$80
+        sty restore_key_flag
         ldy #0
-        jmp rstkey     ;or jmp norest
+        jmp rstkey     ; or jmp norest
 
 nmion:
-        lda enabl      ;re-enable nmi's
+        lda enabl      ; re-enable nmi's
         sta ci2icr
         txa
-        and #%00000010 ;timer b? (bit 1)
-        beq chktxd     ;no
-        tya            ;yes, sample from '(sample pin c)' above
+        and #%00000010 ; timer b? (bit 1)
+        beq chktxd     ; no
+        tya            ; yes, sample from '(sample pin c)' above
         lsr
-        ror ridata     ;rs232 is lsb first
-        sta (ribuf),y  ;(no overrun test)
+        ror ridata     ; rs232 is lsb first
+        dec bitci      ; byte finished?
+        bne txd        ; no
+        ldy ridbe      ; yes, byte to buffer
+        lda ridata
+        sta (ribuf),y  ; (no overrun test)
         inc ridbe
-        lda #0         ;stop timer b
+        lda #0         ; stop timer b
         sta ci2crb
-        lda #%00010010 ;tb nmi off, *flag on
+        lda #%00010010 ; tb nmi off, *flag on
 switch:
-        ldy #%01111111 ;disable nmi's
-        sty ci2icr     ;twice
+        ldy #%01111111 ; disable nmi's
+        sty ci2icr     ; twice
         sty ci2icr
-        eor enabl      ;update mask
+        eor enabl      ; update mask
         sta enabl
-        sta ci2icr     ;enable new config.
-@txd:
+        sta ci2icr     ; enable new config
+txd:
         txa
-        lsr            ;timer a?
+        lsr            ; timer a?
 chktxd:
-        bcc @exit      ;no
-        dec bitts      ;yes, byte finished?
-        bmi @char      ;yes
-        lda #4         ;no, prep next bit
-        ror rodata     ;(fill with stop bits)
+        bcc @exit      ; no
+        dec bitts      ; yes, byte finished?
+        bmi @char      ; yes
+        lda #4         ; no, prep next bit
+        ror rodata     ; (fill with stop bits)
         bcs @store
-@low:   lda #0
+@low:
+        lda #0
 @store:
         sta nxtbit
 @exit:
-        jmp return     ;restore regs, rti
+        jmp return     ; restore regs, rti
 @char:
         ldy rodbs
-        cpy rodbe      ;buffer empty?
-        beq @txoff      ;yes
+        cpy rodbe      ; buffer empty?
+        beq @txoff     ; yes
 @getbuf:
-        lda (robuf),y  ;no, prep next byte
+        lda (robuf),y  ; no, prep next byte
         inc rodbs
         sta rodata
-        lda #9         ;# bits to send
+        lda #9         ; # bits to send
         sta bitts
-        bne @low       ;always - do start bit
+        bne @low       ; always - do start bit
 @txoff:
-        lda #0         ;stop timer a
+        lda #0         ; stop timer a
         stx ci2cra
-        lda #1         ;disable ta nmi
+        lda #1         ; disable ta nmi
         bne switch
 ;--------------------------------------------
 disabl:
-        pha            ;turns off modem port
+        pha            ; turns off modem port
 @test:
         lda enabl
-        and #%11       ;any current activity?
-        bne @test      ;yes, test again
-        lda #%10000    ;no, disable *flag nmi
+        and #%11       ; any current activity?
+        bne @test      ; yes, test again
+        lda #%10000    ; no, disable *flag nmi
         sta ci2icr
         lda #%10
-        and enabl      ;currently receiving?
-        bne @test      ;yes, start over
-        sta enabl      ;all off, update mask
+        and enabl      ; currently receiving?
+        bne @test      ; yes, start over
+        sta enabl      ; all off, update mask
         pla
         rts
 ;--------------------------------------------
 nbsout:
-        pha            ;new bsout
+        pha            ; new bsout
         lda dflto
         cmp #2
         bne notmod
         pla
 rsout:
-        sta sava       ;output to modem
+        sta sava       ; output to modem
         sty savy
 point:
         ldy rodbe
-        sta (robuf),y  ;not official till 'bump pointer' below
-        cpy rodbs      ;buffer full?
-        beq fulbuf     ;yes
-        sty rodbe      ;no, bump pointer
+        sta (robuf),y  ; not official till pointer bumped
+        iny
+        cpy rodbs      ; buffer full?
+        beq fulbuf     ; yes
+        sty rodbe      ; no, bump pointer
 strtup:
         lda enabl
-        and #1         ;transmitting now?
-        bne ret3      ;yes
-        sta nxtbit     ;no, prep start bit
+        and #1         ; transmitting now?
+        bne ret3       ; yes
+        sta nxtbit     ; no, prep start bit
         lda #9
-        sta bitts      ;  # bits to send
+        sta bitts      ;   # bits to send
         ldy rodbs
         lda (robuf),y
         sta rodata     ;  and next byte
         inc rodbs
-        lda baudof     ;full tx bit time to ta
+        lda baudof     ; full tx bit time to ta
         sta ti2alo
         lda baudof+1
         sta ti2ahi
-        lda #%10001    ;start timer a
+        lda #%10001    ; start timer a
         sta ci2cra
-        lda #%10000001 ;enable ta nmi
+        lda #%10000001 ; enable ta nmi
 change:
-        sta ci2icr     ;nmi clears flag if set
-        php            ;save irq status
-        sei            ;disable irq's
-        ldy #%01111111 ;disable nmi's
-        sty ci2icr     ;twice
+        sta ci2icr     ; nmi clears flag if set
+        php            ; save irq status
+        sei            ; disable irq's
+        ldy #%01111111 ; disable nmi's
+        sty ci2icr     ; twice
         sty ci2icr
-        ora enabl      ;update mask
+        ora enabl      ; update mask
         sta enabl
-        sta ci2icr     ;enable new config.
-        plp            ;restore irq status
+        sta ci2icr     ; enable new config
+        plp            ; restore irq status
 ret3:
         clc
         ldy savy
@@ -329,11 +282,11 @@ fulbuf:
         jsr strtup
         jmp point
 notmod:
-        pla            ;back to old bsout
+        pla            ; back to old bsout
         jmp oldout
 ;--------------------------------------------
 nchkin:
-        jsr findfn     ;new chkin
+        jsr findfn     ; new chkin
         bne nchkin_nosuch
         jsr devnum
         lda fa
@@ -342,16 +295,27 @@ nchkin:
         sta dfltn
 
 inable:
-        sta sava       ;enable rs232 input
+        sta sava       ; enable rs232 input
         sty savy
 
-        ; removed setting of timings based off of baudof (assuming unneeded)
+baud:
+        lda baudof+1   ; set receive to same
+        and #$06       ;   baud rate as xmit
+        tay
+        lda strt24,y
+        sta strtlo+1   ; overwrite values in nmi handler
+        lda strt24+1,y
+        sta strthi+1
+        lda full24,y
+        sta fulllo+1
+        lda full24+1,y
+        sta fullhi+1
 
         lda enabl
-        and #%00010010 ;*flag or tb on?
-        bne ret1       ;yes
-        sta ci2crb     ;no stop tb
-        lda #%10010000 ;turn on flag nmi
+        and #%00010010 ; *flag or tb on?
+        bne ret1       ; yes
+        sta ci2crb     ; no stop tb
+        lda #%10010000 ; turn on flag nmi
         jmp change
 
 nchkin_nosuch:
@@ -361,17 +325,40 @@ nchkin_back:
         jmp oldchk
 ;--------------------------------------------
 rsget:
-        sta sava       ;input from modem
+        sta sava       ; input from modem
         sty savy
         ldy ridbs
-        cpy ridbe      ;buffer empty?
-        beq ret2       ;yes
-        lda (ribuf),y  ;no, fetch character
+        cpy ridbe      ; buffer empty?
+        beq ret2       ; yes
+        lda (ribuf),y  ; no, fetch character
         sta sava
         inc ridbs
 ret1:
-        clc            ;cc = char in acc.
+        clc            ; cc = char in acc.
 ret2:
         ldy savy
         lda sava
-        rts            ;cs = buffer was empty
+        rts            ; cs = buffer was empty
+
+.rodata
+.if .def(__NTSC__)
+strt24:  .word $01cb   ; 459   start bit times
+strt12:  .word $0442   ; 1090
+strt03:  .word $1333   ; 4915
+full24:  .word $01a5   ; 421   full bit times
+full12:  .word $034d   ; 845
+full03:  .word $0d52   ; 3410
+.elseif .def(__PAL__)
+strt24:  .word $01ba   ; 442   start bit times
+strt12:  .word $041a   ; 1050
+strt03:  .word $127d   ; 4733
+full24:  .word $0195   ; 405   full bit times
+full12:  .word $032e   ; 814
+full03:  .word $0cd4   ; 3284
+.else
+.error "__NTSC__ or __PAL__ are not specified."
+.endif
+
+.bss
+restore_key_flag:
+        .res 1

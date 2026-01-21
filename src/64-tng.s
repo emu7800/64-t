@@ -20,6 +20,8 @@
 ; - F6      Resets to the Accept Presets page, clears receive buffer
 ; - F7      Review feature, copies receive buffer to screen. SPACE pauses, F7 again quits
 ; - F8      Dumps receive buffer to printer, RUNSTOP quits printing
+; - RUNSTOP + RESTORE  Resets to the Accept Presets page
+; - F1 + RESTORE       Clears receive buffer
 ;
 ;
 ; Reverse engineering and Next Generation improvements
@@ -29,21 +31,23 @@
 ; To build, invoke 'make' in this directory without arguments.
 ;
 
-            .setcpu "6502"
-            .include "cbm_kernal.inc"
-            .include "c64.inc"
+.setcpu "6502"
+.include "cbm_kernal.inc"
+.include "c64.inc"
 
-ntsc_clock_freq         = 1022727
-pal_clock_freq          = 985248
+.import newmodem_start
+.import restore_key_flag
+.import __LOADADDR__
+.import __BSS_LOAD__
+.import __BSS_SIZE__
 
-ntsc_baud_2400          = ntsc_clock_freq/2400/2 - 100
-ntsc_baud_1200          = ntsc_clock_freq/1200/2 - 100
-ntsc_baud_300           = ntsc_clock_freq/ 300/2 - 100
-
-pal_baud_2400           = pal_clock_freq/2400/2 - 100
-pal_baud_1200           = pal_clock_freq/1200/2 - 100
-pal_baud_300            = pal_clock_freq/ 300/2 - 100
-
+.if .def(__NTSC__)
+clock_freq              = 1022727   ; ntsc clock frequency
+.elseif .def(__PAL__)
+clock_freq              = 985248    ; pal clock frequency
+.else
+.error "Either __NTSC__ or __PAL__ must be defined."
+.endif
 
 stop_char               = 3     ; PETSCII stop
 BS                      = 8     ; ASCII backspace
@@ -81,7 +85,6 @@ sta_opcode              = $8d
 
 accumlator_save         = $03
 dpx_flag                = $1f   ; bit7: 0=full, 1=half
-ntsc_flag               = $21   ; bit7: 0=pal, 1=ntsc
 FREETOP                 = $33   ; Pointer to the Bottom of the String Text Storage Area
 FRESPC                  = $35   ; Temporary Pointer for Strings
 MEMSIZ1                 = $37   ; Pointer to the Highest Address Used by BASIC
@@ -119,11 +122,6 @@ offset_ermi             = 4  ; ERMI sprite
 offset_nal              = 5  ; NAL sprite
 
 
-; Receive buffer size: $6000 bytes => 24,576 bytes => 24K
-startof_rcv_buffer_addr = $3000
-endof_basic_addr        = $9000
-
-
 sprite_data_ptr_offset  = $3f8  ; Start of Sprite Shape Data Pointers
 lo_screen_nybble        = $1
 hi_screen_nybble        = $a
@@ -137,21 +135,20 @@ printer_file_no         = 4
 printer_device_no       = 4
 
 
-           .import newmodem_start
-newmodem_setup  = newmodem_start
-newmodem_inable = newmodem_start+3
-newmodem_disabl = newmodem_start+6
+newmodem_setup          = newmodem_start
+newmodem_inable         = newmodem_start+3
+newmodem_disabl         = newmodem_start+6
+
 
 ; C64 kernal addresses not in cbm_kernal.inc
 USKINDIC                = $f6bc ; Update Stop key indicator, at memory address $0091, A and X registers used
 
-           .segment "LOADADDR"
-           .import __LOADADDR__
-           .word   __LOADADDR__
+.segment "LOADADDR"
+.word   __LOADADDR__
 
-           .segment "EXEHDR"
+.segment "EXEHDR"
 startofexeheader:
-           ; 0 SYS2304:REM  * * 64 TERMINAL NG * *
+           ; 0 SYSnnnn:REM  * * 64 TERMINAL NG * *
            .word endofbasicprogram
            .byte $00, $00 ; 0
            .byte $9e      ; SYS
@@ -166,7 +163,7 @@ startofexeheader:
 endofbasicprogram:
            .byte 0, 0
 
-           .segment "CODE"
+.code
 start:
            jsr clear_both_screens
            lda #toggle_charset
@@ -185,9 +182,6 @@ start:
            lda #1                  ; white
            sta COLOR
 
-           lda #$80                ; set to ntsc mode
-           sta ntsc_flag
-
            jsr output_cursor_home_and_cursor_down
            jsr output_space_and_cursor_left_to_screen
            lda #0                  ; dont show cursor, set low screen
@@ -198,6 +192,8 @@ reset:
            lda #1                  ; white
            sta COLOR
            jsr init_sprites
+           lda #0
+           sta restore_key_flag
            lda #$80                ; show cursor
            sta show_cursor_flag
            jsr accept_presets_menu
@@ -209,27 +205,69 @@ reset:
            jsr open_modem_device
 main:
            jsr CLRCHN
+
+           jsr USKINDIC
+           jsr STOP
+           bne get_byte_from_keyboard
+
+           ; runstop already pressed, check for restore
+           bit restore_key_flag
+           bmi reset
+
+get_byte_from_keyboard:
            jsr GETIN
            beq @go_get_char_from_modem
-           cmp #stop_char
-           beq main
-           ; Accept 0-128,130-141,147,148,160-255
-           cmp #$80
-           bcc @continue_handle_char_from_kbd
-           cmp #$81
-           beq @go_get_char_from_modem
-           cmp #$8e
-           bcc @continue_handle_char_from_kbd
-           cmp #clear_screen
-           beq @continue_handle_char_from_kbd
-           cmp #insert
-           beq @continue_handle_char_from_kbd
-           cmp #$a0
-           bcs @continue_handle_char_from_kbd
+
+           bit restore_key_flag
+           bpl handle_char_from_kbd
+
+           ; restore pressed
+           pha
+           jsr USKINDIC
+           jsr STOP
+           beq @handle_runstop_restore
+           pla
+           jmp handle_char_from_kbd
+
+           ; runstop pressed
+@handle_runstop_restore:
+           pla
+           jmp reset
+
 @go_get_char_from_modem:
            jmp get_char_from_modem
 
-@continue_handle_char_from_kbd:
+
+handle_char_from_kbd:
+           bit restore_key_flag
+           bpl @next
+           cmp #F1
+           bne @next
+           ; F1 + restore pressed
+           jsr init_rcv_buffer_ptr
+           lda #0
+           sta restore_key_flag
+           jmp main
+@next:
+           ldx #0
+           stx restore_key_flag
+           cmp #128
+           bcc continue_handle_char_from_kbd
+           cmp #129
+           beq @done
+           cmp #142
+           bcc continue_handle_char_from_kbd
+           cmp #clear_screen
+           beq continue_handle_char_from_kbd
+           cmp #insert
+           beq continue_handle_char_from_kbd
+           cmp #160
+           bcs continue_handle_char_from_kbd
+@done:
+           jmp main
+
+
+continue_handle_char_from_kbd:
            cmp #F1                ; turn off RCV
            bne @next2
            bit rcv_flag
@@ -393,11 +431,7 @@ get_char_from_modem:
 
 
 dump_rcv_buffer_to_printer:
-           lda #1
-           bit ntsc_flag
-           beq @skip_newmodem_disabl
            jsr newmodem_disabl
-@skip_newmodem_disabl:
            lda #0
            sta rcv_flag
            sta rcv_notadded_flag
@@ -452,11 +486,7 @@ dump_rcv_buffer_to_printer:
            jsr open_modem_device
            lda #%00010111         ; scroll 7, 24 rows
            sta VIC_CTRL1
-           lda #1
-           bit ntsc_flag
-           beq @skip_newmodem_inable
            jsr newmodem_inable
-@skip_newmodem_inable:
            jmp main
 
 
@@ -495,7 +525,7 @@ delay_256x160:
 
 
 output_char_to_screen:
-            bit rcv_flag
+           bit rcv_flag
            bpl @skip_buffering
            jsr to_rcv_buffer
 @skip_buffering:
@@ -620,7 +650,7 @@ fine_scroll_one_line:
            bit VIC_CTRL1
            bpl @loop1             ; wait until raster is off visible screen
 
-           dec VIC_CTRL1             ; fine scroll one line
+           dec VIC_CTRL1          ; fine scroll one line
 
            ldx #200
 @delay:
@@ -755,22 +785,21 @@ accept_presets_menu:
            lda #0
            sta NDX
            sta rcv_flag
+           sta restore_key_flag
            sta charset_flag
            jsr clear_both_screens
            jsr CLRCHN
            jsr output_clear_and_cursor_down_to_screen
            lda #0
            sta dpx_flag
-           lda #$80
-           sta ntsc_flag
 
            lda #0                 ; user specified baud, 8 bits, 1 stop bit
            sta serial_config
            lda #0
            sta serial_config+1    ; no parity
-           lda #<ntsc_baud_1200
+           lda #<baud_1200
            sta serial_config+2
-           lda #>ntsc_baud_1200
+           lda #>baud_1200
            sta serial_config+3
 
 presets_start:
@@ -784,48 +813,12 @@ presets_start:
            cmp #ychar
            beq @accept_y
            cmp #nchar
-           beq @tv_start
+           beq @baud_start
            bne @accept_q
 @accept_y:
            lda #ychar
            jsr output_char_to_screen
            jmp @done
-@tv_start:
-           jsr delay_onethirdsec
-           jsr output_clear_and_cursor_down_to_screen
-           ldy #<presets_tv
-           lda #>presets_tv
-           jsr output_string_to_screen
-@tv_q:
-           jsr GETIN
-           beq @tv_q
-           cmp #$31
-           bne @tv_n1
-           jsr output_char_to_screen
-           lda #$80
-           sta ntsc_flag
-           bne @baud_start
-@tv_n1:
-           cmp #$32
-           bne @tv_n2
-           jsr output_char_to_screen
-           lda #0
-           sta ntsc_flag
-           beq @baud_start
-; temporary options to switch on 'newmodem'
-@tv_n2:
-           cmp #$34
-           bne @tv_n3
-           jsr output_char_to_screen
-           lda #$81
-           sta ntsc_flag
-           bne @baud_start
-@tv_n3:
-           cmp #$34
-           bne @tv_q
-           jsr output_char_to_screen
-           lda #1
-           sta ntsc_flag
 
 @baud_start:
            jsr delay_onethirdsec
@@ -847,18 +840,9 @@ presets_start:
            tax
            dex
            stx baud_selection
-           bit ntsc_flag
-           bmi @baud_ntsc
-@baud_pal:
-           lda pal_baud_settings_lo,x
+           lda baud_settings_lo,x
            sta serial_config+2
-           lda pal_baud_settings_hi,x
-           sta serial_config+3
-           jmp @set_8n1
-@baud_ntsc:
-           lda ntsc_baud_settings_lo,x
-           sta serial_config+2
-           lda ntsc_baud_settings_hi,x
+           lda baud_settings_hi,x
            sta serial_config+3
 @set_8n1:
            lda serial_config
@@ -899,19 +883,7 @@ presets_start:
            ldy #<help_text
            lda #>help_text
            jsr output_string_to_screen
-           lda #1
-           bit ntsc_flag
-           beq @done2
-           bpl @palsetup
-@ntscsetup:
-           lda baud_selection
-           jmp @setup
-@palsetup:
-           lda baud_selection
-           adc #4
-@setup:
            jsr newmodem_setup
-@done2:
            rts
 
 
@@ -1195,7 +1167,7 @@ init_sprites:
            stx hi_screen_addr+sprite_data_ptr_offset+4
            rts
 
-           .segment "RODATA"
+.rodata
 sprite_data_64t:
                                ; ------------------------
            .byte $70, $40, $1f ;  111     1         11111
@@ -1259,11 +1231,9 @@ title_message:
 presets:
            .byte "***presets***"
            .byte $0d, $0d
-           .byte "tv: NTSC"
-           .byte $0d
            .byte "baud: 1200"
            .byte $0d
-           .byte "worksize: 8 bits"
+           .byte "wordsize: 8 bits"
            .byte $0d
            .byte "parity: none"
            .byte $0d
@@ -1272,15 +1242,6 @@ presets:
            .byte "charset: ascii"
            .byte $0d, $0d
            .byte "accept presets? "
-           .byte 0
-presets_tv:
-           .byte "***tv***"
-           .byte $0d, $0d
-           .byte "1. NTSC"
-           .byte $0d
-           .byte "2. PAL"
-           .byte $0d, $0d
-           .byte "selection? "
            .byte 0
 presets_baud:
            .byte "***baud***"
@@ -1317,6 +1278,10 @@ help_text:
            .byte "F8     Dump RCV buffer to printer,    "
            .byte $0d
            .byte "         RUNSTOP stops printing       "
+           .byte $0d
+           .byte "       RUNSTOP + RESTORE resets       "
+           .byte $0d
+           .byte "       F1 + RESTORE clears RCV buffer "
            .byte $0d, $0d
            .byte 0
 
@@ -1325,27 +1290,28 @@ err_printer_offline_message:
            .byte "* * * ERROR: Printer Off-Line * * *"
            .byte $0d, 0
 
-ntsc_baud_settings_lo:
-           .byte <ntsc_baud_2400     ; (1) 2400 baud lo
-           .byte <ntsc_baud_1200     ; (2) 1200 baud lo
-           .byte <ntsc_baud_300      ; (3)  300 baud lo
-ntsc_baud_settings_hi:
-           .byte >ntsc_baud_2400     ; (1) 2400 baud hi
-           .byte >ntsc_baud_1200     ; (2) 1200 baud hi
-           .byte >ntsc_baud_300      ; (3)  300 baud hi
-pal_baud_settings_lo:
-           .byte <pal_baud_2400      ; (1) 2400 baud lo
-           .byte <pal_baud_1200      ; (2) 1200 baud lo
-           .byte <pal_baud_300       ; (3)  300 baud lo
-pal_baud_settings_hi:
-           .byte >pal_baud_2400      ; (1) 2400 baud hi
-           .byte >pal_baud_1200      ; (2) 1200 baud hi
-           .byte >pal_baud_300       ; (3)  300 baud hi
+baud_2400 = clock_freq/2400/2 - 100
+baud_1200 = clock_freq/1200/2 - 100
+baud_300  = clock_freq/ 300/2 - 100
 
-           .segment "DATA"
+baud_settings_lo:
+           .byte <baud_2400     ; (1) 2400 baud lo
+           .byte <baud_1200     ; (2) 1200 baud lo
+           .byte <baud_300      ; (3)  300 baud lo
+baud_settings_hi:
+           .byte >baud_2400     ; (1) 2400 baud hi
+           .byte >baud_1200     ; (2) 1200 baud hi
+           .byte >baud_300      ; (3)  300 baud hi
+
+.bss
 baud_selection:
            .byte 0
 move_cursor_up_oneline_flag:
            .byte 0
-save_y:    .byte 0
 save_x:    .byte 0
+save_y:    .byte 0
+
+; Receive buffer size: $6000 bytes => 24,576 bytes => 24K
+startof_rcv_buffer_addr:
+           .res $6000
+endof_basic_addr:

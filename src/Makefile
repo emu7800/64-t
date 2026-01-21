@@ -10,7 +10,7 @@ all: 64-t.prg 64-tng.prg
 	ld65 -o 64-tng.prg -C 64-tng.cfg -m 64-tng.map.txt 64-tng.o newmodem.o
 
 %.o: %.s
-	ca65 -o $@ -t c64 -l $*.listing.txt $<
+	ca65 -o $@ -t c64 -l $*.listing.txt -D __NTSC__ $<
 
 clean:
 	-rm -f *.o *.prg *.listing.txt *.map.txt

@@ -32,9 +32,9 @@
 ; To build, invoke 'make' in this directory without arguments.
 ;
 
-            .setcpu "6502"
-            .include "cbm_kernal.inc"
-            .include "c64.inc"
+.setcpu "6502"
+.include "cbm_kernal.inc"
+.include "c64.inc"
 
 ntsc_clock_freq         = 1023000  ; ntsc is actually 1022727, pal is 985248
 
@@ -103,10 +103,10 @@ NDX                     = $c6   ; Number of Characters in Keyboard Buffer (Queue
 SFDX                    = $cb   ; Matrix Coordinate of Current Key Pressed
 PNTR                    = $d3   ; Cursor column on current logical line (0-79)
 TBLX                    = $d6   ; Current cursor physical line number (0-24)
-MEMSIZ2                 = $0283 ; Pointer: O.S. End of Memory
-COLOR                   = $0286 ; Current Foreground Color for Text (values 0-f)
-HIBASE                  = $0288 ; Top page of screen memory
-SHFLAG                  = $028d ; Flag: SHIFT/CTRL/LOGO Keypress bit0=SHIFT, bit1=LOGO, bit2=CTRL
+MEMSIZ2                 = $283  ; Pointer: O.S. End of Memory
+COLOR                   = $286  ; Current Foreground Color for Text (values 0-f)
+HIBASE                  = $288  ; Top page of screen memory
+SHFLAG                  = $28d  ; Flag: SHIFT/CTRL/LOGO Keypress bit0=SHIFT, bit1=LOGO, bit2=CTRL
 
 
 sprite_data_base_addr   = $2000
@@ -138,13 +138,13 @@ printer_device_no       = 4
 ; C64 kernal addresses not in cbm_kernal.inc
 USKINDIC                = $f6bc ; Update Stop key indicator, at memory address $0091, A and X registers used
 
-           .segment "LOADADDR"
-           .import __LOADADDR__
-           .word   __LOADADDR__
+.segment "LOADADDR"
+.import __LOADADDR__
+.word   __LOADADDR__
 
-           .segment "EXEHDR"
+.segment "EXEHDR"
 startofexeheader:
-           ; 0 SYS2304:REM   * * * 64 TERMINAL * * *
+           ; 0 SYSnnnn:REM   * * * 64 TERMINAL * * *
            .word endofbasicprogram
            .byte $00, $00 ; 0
            .byte $9e      ; SYS
@@ -159,7 +159,7 @@ startofexeheader:
 endofbasicprogram:
            .byte 0, 0
 
-           .segment "CODE"
+.code
 start:
            jsr copy_cart_signature_for_nono_routine
            jsr clear_both_screens
@@ -1660,10 +1660,10 @@ nmihandler:
            pha
            tya
            pha
-           lda #$7f               ; disable all NMI sources
+           lda #%01111111         ; disable all NMI sources
            sta CIA2_ICR
            ldy CIA2_ICR
-           bpl @skip_rs232         ; NMI has not been generated
+           bpl @skip_rs232        ; NMI has not been generated
            jmp $fe72              ; RS232 NMI routine
 @skip_rs232:
            lda #$80

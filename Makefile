@@ -9,7 +9,7 @@ all: bin obj
 bin:
 	mkdir bin/
 
-obj: src
+obj:
 	mkdir obj/
 
 clean:
