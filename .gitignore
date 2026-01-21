@@ -1,3 +1,7 @@
 Thumbs.db
 bin/
 obj/
+*.o
+*.prg
+*.listing.txt
+*.map.txt
