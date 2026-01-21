@@ -23,7 +23,7 @@ Enjoy! Feel free to drop me a line. It would be interesting if this resonates wi
 `64-t.s` is the assembly source listing reversed engineered from the original binary found on the cassette tape. It can be assembled by the [cc65](https://cc65.github.io/)
 toolchain and outputs the exact bytes as the original.
 
-`64-tng.asm` is the assembly source listing of a "next generation" or improved/improving version
+`64-tng.s` is the assembly source listing of a "next generation" or improved/improving version
 of the original `64-t.s`, eliminating minor bugs of the original and adding new features.
 Still a work in progress.
 
@@ -43,4 +43,3 @@ The "Next Generation" version is still a work in progress.
 - scroll effect needs to retain PETSCII colors
 - test the newmodem routines (secret tv options 3 and 4)
 - PETSCII art seems to trigger an extra newline
--
