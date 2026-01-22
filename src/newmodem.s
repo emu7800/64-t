@@ -41,9 +41,9 @@ rodbs   = $29d    ; RS-232: index to start of send buffer
 rodbe   = $29e    ; RS-232: index to end of send buffer
 enabl   = $2a1    ; RS-232: NMI interrupts enabled from ci2icr (bit4=wait for rcv edge, bit1=rcving data, bit0=xmiting data)
 nmi    := nmi64
-rstkey := $fe56
-norest := $fe72
-return := $febc
+rstkey := $fe56   ; resume standard NMI handler, performing normal restore key handling (cart/basic warm start)
+norest := $fe72   ; resume standard NMI handler, skipping normal restore key handling
+return := $febc   ; return from NMI handler
 oldout := $f1ca
 oldchk := $f21b
 findfn := $f30f
@@ -59,9 +59,9 @@ rodbs   = $a1a    ; RS-232: index to start of send buffer
 rodbe   = $a1b    ; RS-232: index to end of send buffer
 enabl   = $a0f    ; RS-232: NMI interrupts enabled from ci2icr (bit4=wait for rcv edge, bit1=rcving data, bit0=xmiting data)
 nmi    := nmi128
-rstkey := $fa4b
-norest := $fa5f
-return := $ff33
+rstkey := $fa4b   ; resume standard NMI handler, performing normal restore key handling (cart/basic warm start)
+norest := $fa5f   ; resume standard NMI handler, skipping normal restore key handling
+return := $ff33   ; return from NMI handler
 oldout := $ef79
 oldchk := $f10e
 findfn := $f202
@@ -152,8 +152,7 @@ fullhi:
 notcia:
         ldy #$80
         sty restore_key_flag
-        ldy #0
-        jmp rstkey     ; or jmp norest
+        jmp return     ; or rstkey or norest
 
 nmion:
         lda enabl      ; re-enable nmi's
