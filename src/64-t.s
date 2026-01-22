@@ -36,6 +36,20 @@
 .include "cbm_kernal.inc"
 .include "c64.inc"
 
+; fixup char mapping for specific upper case letters to match original binary
+.charmap $41, $61 ; A
+.charmap $44, $64 ; D
+.charmap $45, $65 ; E
+.charmap $49, $69 ; I
+.charmap $4a, $6a ; J
+.charmap $4c, $6c ; L
+.charmap $4d, $6d ; M
+.charmap $4e, $6e ; L
+.charmap $4f, $6f ; O
+.charmap $50, $70 ; P
+.charmap $52, $72 ; R
+.charmap $54, $74 ; T
+
 ntsc_clock_freq         = 1023000  ; ntsc is actually 1022727, pal is 985248
 
 ntsc_baud_110           = ntsc_clock_freq/110/2 - 100
@@ -914,7 +928,7 @@ title_message:
            .byte $0d, $0d, $0d, $0d
            .byte "            Dr. Jim Rothwell"
            .byte $0d, $0d, $0d, $0d, $0d, $0d
-           .byte "               (C) 1983"
+           .byte "               (c) 1983"
            .byte $0d, $0d
            .byte "           Midwest Micro Inc."
            .byte $0d, 0
