@@ -1219,7 +1219,7 @@ title_message:
            .byte $0d, $0d, $0d, $0d
            .byte "            Dr. Jim Rothwell"
            .byte $0d, $0d, $0d, $0d, $0d, $0d
-           .byte "               (C) 1983"
+           .byte "               (c) 1983"
            .byte $0d, $0d
            .byte "           Midwest Micro Inc."
            .byte $0d, 0
@@ -1227,6 +1227,12 @@ title_message:
 presets:
            .byte "***presets***"
            .byte $0d, $0d
+.if     .def(__NTSC__)
+           .byte "tv: NTSC"
+.elseif .def(__PAL__)
+           .byte "tv: PAL"
+.endif
+           .byte $0d
            .byte "baud: 1200"
            .byte $0d
            .byte "wordsize: 8 bits"
