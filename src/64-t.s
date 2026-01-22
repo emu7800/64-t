@@ -26,7 +26,7 @@
 ; - F1 + RESTORE       Clears receive buffer
 ;
 ;
-; Reverse engineered by Mike Murphy (mike@emu7800.net), circa 2023.
+; Reverse engineered by Mike Murphy (mike@emu7800.net), circa 2025.
 ; Intended for preservation and educational purposes only.
 ;
 ; To build, invoke 'make' in this directory without arguments.
@@ -73,10 +73,6 @@ clear_screen            = 147   ; PETSCII clear screen
 insert                  = 148   ; PETSCII insert
 cursor_left             = 157   ; PETSCII cursor left
 underscore              = 164   ; PETSCII underscore
-
-bit_opcode              = $2c
-ldx_opcode              = $ae
-sta_opcode              = $8d
 
 accumlator_save         = $03
 dpx_flag                = $1f   ; bit7: 0=full, 1=half
@@ -269,8 +265,7 @@ toggle_rs232_txd_and_set_txd_flag:
            bne main
 
 get_current_key_pressed:
-           .byte ldx_opcode
-           .word SFDX             ; avoid zero-page addressing optimization
+           ldx a:SFDX             ; zp not used in the original binary
            cpx #64                ; no key pressed
            beq go_get_char_from_modem
            lda $eb81,x            ; keyboard decode table: keyboard1 unshifted
@@ -432,8 +427,7 @@ output_char_to_modem_with_dpx_echo:
            bcs @next1
            ora #$80
 @next1:
-           .byte bit_opcode
-           .word dpx_flag          ; avoid zero-page addressing optimization
+           bit a:dpx_flag         ; zp not used in the original binary
            bpl output_char_to_modem
            jsr output_char_to_screen
 
@@ -471,8 +465,7 @@ output_char_to_modem:
            cmp #CR
            bne @done
            jsr CHROUT
-           .byte bit_opcode
-           .word linefeed_flag     ; avoid zero-page addressing optimization
+           bit a:linefeed_flag    ; zp not used in the original binary
            bpl get_char_from_modem
            lda #LF
 @done:
@@ -525,7 +518,7 @@ get_char_from_modem:
            bne set_nonspace_seen_fmt_flag
 clear_nonspace_seen_fmt_flag:
            ldx #0                 ; set discard spaces
-           .byte bit_opcode
+           .byte $2c              ; bit opcode, found in the original binary, likely an error
 set_nonspace_seen_fmt_flag:
            ldx #1                 ; set dont discard spaces
            stx fmt_flag
@@ -953,11 +946,9 @@ accept_presets_menu:
            lda #%10100000          ; 3 lines, full duplex, mark parity
            sta serial_config+1
            lda #<ntsc_baud_300
-           .byte sta_opcode
-           .word serial_config+2   ; avoid zero-page addressing optimization
+           sta a:serial_config+2   ; zp not used in the original binary
            lda #>ntsc_baud_300
-           .byte sta_opcode
-           .word serial_config+3   ; avoid zero-page addressing optimization
+           sta a:serial_config+3   ; zp not used in the original binary
            ldy #<presets
            lda #>presets
            jsr output_string_to_screen

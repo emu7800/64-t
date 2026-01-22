@@ -25,7 +25,7 @@
 ;
 ;
 ; Reverse engineering and Next Generation improvements
-; by Mike Murphy (mike@emu7800.net), circa 2023.
+; by Mike Murphy (mike@emu7800.net), circa 2025.
 ; Intended for preservation and educational purposes only.
 ;
 ; To build, invoke 'make' in this directory without arguments.
@@ -78,10 +78,6 @@ clear_screen            = 147   ; PETSCII clear screen
 insert                  = 148   ; PETSCII insert
 cursor_left             = 157   ; PETSCII cursor left
 underscore              = 164   ; PETSCII underscore
-
-bit_opcode              = $2c
-ldx_opcode              = $ae
-sta_opcode              = $8d
 
 accumlator_save         = $03
 dpx_flag                = $1f   ; bit7: 0=full, 1=half
