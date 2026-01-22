@@ -128,22 +128,22 @@ nmi128:
         and #%00010000 ; *flag nmi? (bit 4)
         beq nmion      ; no
 strtlo:
-        lda #%01000010 ; yes, start-bit to tb
+        lda #$42       ; yes, start-bit to tb  (argument overwritten)
         sta ti2blo
 strthi:
-        lda #%00000100
+        lda #$04       ;                       (argument overwritten)
         sta ti2bhi
-        lda #%00010001 ; start tb counting
+        lda #$11       ; start tb counting
         sta ci2crb
-        lda #%00010010 ; *flag nmi off, tb on
+        lda #$12       ; *flag nmi off, tb on
         eor enabl      ; update mask
         sta enabl
         sta ci2icr     ; enable new config
 fulllo:
-        lda #%01001101 ; change reload latch
+        lda #$4d       ; change reload latch   (argument overwritten)
         sta ti2blo     ;   to full-bit time
 fullhi:
-        lda #%00000011
+        lda #$03       ;                       (argument overwritten)
         sta ti2bhi
         lda #8         ; # of bits to receive
         sta bitci
@@ -299,8 +299,9 @@ inable:
         sty savy
 
 baud:
-        lda baudof+1   ; set receive to same
-        and #$06       ;   baud rate as xmit
+        lda baudof+1   ; set receive to same baud rate as xmit
+        asl a          ; seems to be needed, missing on original listing
+        and #$06
         tay
         lda strt24,y
         sta strtlo+1   ; overwrite values in nmi handler
