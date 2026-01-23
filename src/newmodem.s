@@ -75,10 +75,11 @@ nofile := $f682
 ;--------------------------------------------
 newmodem_start:
 xx00:   jmp setup
-xx03:   jmp inable ; enables RS-232 input function without selecting device #2 for input (do after disk, tape, REU operation)
-xx06:   jmp disabl ; disables RS-232 input function without selecting another device for input (do before disk, tape, REU operation)
-xx09:   jmp rsget  ; get char from RS-232 recv buffer regardless of current input device (carry set if buffer empty)
-xx0c:   jmp rsout  ; put char to RS-232 send buffer regardless of current output device
+xx03:   jmp inable  ; enables RS-232 input function without selecting device #2 for input (do after disk, tape, REU operation)
+xx06:   jmp disabl  ; disables RS-232 input function without selecting another device for input (do before disk, tape, REU operation)
+xx09:   jmp rsget   ; get char from RS-232 recv buffer regardless of current input device (carry set if buffer empty)
+xx0c:   jmp rsout   ; put char to RS-232 send buffer regardless of current output device
+xx0f:   jmp setbaud ; set RS-232 baud rate: accumulator: $0=2400, $1=1200, $2=300
         nop
 ;--------------------------------------------
 setup:
@@ -94,6 +95,20 @@ setup:
         ldy #>nbsout
         sta ibsout
         sty ibsout+1
+        rts
+;--------------------------------------------
+setbaud:
+        and #%11
+        asl a
+        tay
+        lda strt24,y
+        sta strtlo+1   ; overwrite values in nmi handler
+        lda strt24+1,y
+        sta strthi+1
+        lda full24,y
+        sta fulllo+1
+        lda full24+1,y
+        sta fullhi+1
         rts
 ;--------------------------------------------
 nmi64:
@@ -296,21 +311,6 @@ nchkin:
 inable:
         sta sava       ; enable rs232 input
         sty savy
-
-baud:
-        lda baudof+1   ; set receive to same baud rate as xmit
-        asl a          ; seems to be needed, missing on original listing
-        and #$06
-        tay
-        lda strt24,y
-        sta strtlo+1   ; overwrite values in nmi handler
-        lda strt24+1,y
-        sta strthi+1
-        lda full24,y
-        sta fulllo+1
-        lda full24+1,y
-        sta fullhi+1
-
         lda enabl
         and #%00010010 ; *flag or tb on?
         bne ret1       ; yes
@@ -345,16 +345,20 @@ ret2:
 strt24:  .word $01cb   ; 459   start bit times
 strt12:  .word $0442   ; 1090
 strt03:  .word $1333   ; 4915
+         .word $1333
 full24:  .word $01a5   ; 421   full bit times
 full12:  .word $034d   ; 845
 full03:  .word $0d52   ; 3410
+         .word $0d52
 .elseif .def(__PAL__)
 strt24:  .word $01ba   ; 442   start bit times
 strt12:  .word $041a   ; 1050
 strt03:  .word $127d   ; 4733
+         .word $127d
 full24:  .word $0195   ; 405   full bit times
 full12:  .word $032e   ; 814
 full03:  .word $0cd4   ; 3284
+         .word $0cd4
 .else
 .error "__NTSC__ or __PAL__ are not specified."
 .endif

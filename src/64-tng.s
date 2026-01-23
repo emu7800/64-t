@@ -134,6 +134,7 @@ printer_device_no       = 4
 newmodem_setup          = newmodem_start
 newmodem_inable         = newmodem_start+3
 newmodem_disabl         = newmodem_start+6
+newmodem_setbaud        = newmodem_start+$f
 
 
 ; C64 kernal addresses not in cbm_kernal.inc
@@ -184,6 +185,8 @@ start:
            sta show_cursor_flag
            sta screen_select_flag
            jsr print_title_message_to_screen
+
+           jsr newmodem_setup
 reset:
            lda #1                  ; white
            sta COLOR
@@ -197,7 +200,6 @@ reset:
            jsr CLALL
            lda #$80
            sta rcv_notadded_flag
-           jsr open_printer_device
            jsr open_modem_device
 main:
            jsr CLRCHN
@@ -435,6 +437,7 @@ dump_rcv_buffer_to_printer:
            lda #CR
            jsr output_char_to_screen
            jsr CLRCHN
+           jsr open_printer_device
            ldx #printer_device_no
            jsr CHKOUT
            jsr READST
@@ -479,10 +482,10 @@ dump_rcv_buffer_to_printer:
            jsr output_char_to_screen
            lda #modem_file_no
            jsr CLOSE
+           jsr newmodem_inable
            jsr open_modem_device
            lda #%00010111         ; scroll 7, 24 rows
            sta VIC_CTRL1
-           jsr newmodem_inable
            jmp main
 
 
@@ -793,10 +796,15 @@ accept_presets_menu:
            sta serial_config
            lda #0
            sta serial_config+1    ; no parity
-           lda #<baud_1200
+
+           ldx #1                 ; 1200 baud
+           stx baud_selection
+           lda baud_settings_lo,x
            sta serial_config+2
-           lda #>baud_1200
+           lda baud_settings_hi,x
            sta serial_config+3
+           lda baud_selection
+           jsr newmodem_setbaud
 
 presets_start:
            ldy #<presets
@@ -840,6 +848,8 @@ presets_start:
            sta serial_config+2
            lda baud_settings_hi,x
            sta serial_config+3
+           lda baud_selection
+           jsr newmodem_setbaud
 @set_8n1:
            lda serial_config
            and #%10011111         ; 8 bit
@@ -879,7 +889,6 @@ presets_start:
            ldy #<help_text
            lda #>help_text
            jsr output_string_to_screen
-           jsr newmodem_setup
            rts
 
 
@@ -974,7 +983,7 @@ open_modem_device:
 
 
 open_printer_device:
-            lda #0                 ; filename length
+           lda #0                 ; filename length
            jsr SETNAM
            lda #printer_file_no
            ldx #printer_device_no
