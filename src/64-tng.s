@@ -51,8 +51,9 @@ clock_freq              = 985248    ; pal clock frequency
 
 stop_char               = 3     ; PETSCII stop
 BS                      = 8     ; ASCII backspace
+enable_logoshift        = 9     ; PETSCII enable keyboard LOGO+SHIFT combination
 CR                      = 13    ; PETSCII/ASCII carriage return
-toggle_charset          = 14    ; PETSCII toggle character se
+toggle_charset          = 14    ; PETSCII toggle character set
 cursor_down             = 17    ; PETSCII cursor down
 cursor_home             = 19    ; PETSCII cursor home
 delete                  = 20    ; PETSCII delete $14
@@ -79,7 +80,6 @@ insert                  = 148   ; PETSCII insert
 cursor_left             = 157   ; PETSCII cursor left
 underscore              = 164   ; PETSCII underscore
 
-accumlator_save         = $03
 dpx_flag                = $1f   ; bit7: 0=full, 1=half
 FREETOP                 = $33   ; Pointer to the Bottom of the String Text Storage Area
 FRESPC                  = $35   ; Temporary Pointer for Strings
@@ -165,20 +165,11 @@ start:
            jsr clear_both_screens
            lda #toggle_charset
            jsr CHROUT
-           lda #>sprite_data_base_addr
-           sta MEMSIZ2+1
-           sta FRESPC+1
-           sta FREETOP+1
-           lda #>endof_basic_addr
-           sta MEMSIZ1+1
+           lda #enable_logoshift
+           jsr CHROUT
            lda #%00010111          ; scroll 7, 24 rows
            sta VIC_CTRL1
-           lda #0                  ; black
-           sta VIC_BORDERCOLOR
-           sta VIC_BG_COLOR0
-           lda #1                  ; white
-           sta COLOR
-
+           jsr config_colors
            jsr output_cursor_home_and_cursor_down
            jsr output_space_and_cursor_left_to_screen
            lda #0                  ; dont show cursor, set low screen
@@ -188,8 +179,7 @@ start:
 
            jsr newmodem_setup
 reset:
-           lda #1                  ; white
-           sta COLOR
+           jsr config_colors
            jsr init_sprites
            lda #0
            sta restore_key_flag
@@ -214,7 +204,9 @@ main:
 
 get_byte_from_keyboard:
            jsr GETIN
-           beq @go_get_char_from_modem
+           beq get_current_key_pressed
+           cmp stop_char
+           beq get_current_key_pressed
 
            bit restore_key_flag
            bpl handle_char_from_kbd
@@ -223,16 +215,31 @@ get_byte_from_keyboard:
            pha
            jsr USKINDIC
            jsr STOP
-           beq @handle_runstop_restore
+           beq handle_runstop_restore
            pla
            jmp handle_char_from_kbd
 
            ; runstop pressed
-@handle_runstop_restore:
+handle_runstop_restore:
            pla
            jmp reset
 
-@go_get_char_from_modem:
+get_current_key_pressed:
+           ldx SFDX
+           cpx #64                ; no key pressed
+           beq go_get_char_from_modem
+           lda $eb81,x            ; keyboard decode table: keyboard1 unshifted
+           and #$1f
+           cmp last_keycode
+           beq go_get_char_from_modem
+           sta last_keycode
+           pha
+           jmp output_char_to_modem
+clear_last_keycode_then_get_char_from_modem:
+           lda #0
+           sta last_keycode
+
+go_get_char_from_modem:
            jmp get_char_from_modem
 
 
@@ -893,7 +900,7 @@ presets_start:
 
 
 config_colors:
-           lda #0                 ; black
+           lda #6                 ; blue
            sta VIC_BORDERCOLOR
            sta VIC_BG_COLOR0
            lda #1                 ; white
@@ -1021,7 +1028,7 @@ output_cursor_home_and_cursor_down:
 
 to_rcv_buffer:
            ldy #0
-           sta accumlator_save
+           sta save_a
            cmp #BS
            beq remove_from_rcv_buffer
            cmp #DEL
@@ -1040,7 +1047,7 @@ remove_from_rcv_buffer:
 @decrement_then_done:
            dec rcv_buffer_ptr_lo
 @done:
-           lda accumlator_save
+           lda save_a
            rts
 
 
@@ -1065,7 +1072,7 @@ add_to_rcv_buffer:
 @done:
            lda #0
            sta (rcv_buffer_ptr),y
-           lda accumlator_save
+           lda save_a
            rts
 
 
@@ -1319,10 +1326,10 @@ baud_selection:
            .byte 0
 move_cursor_up_oneline_flag:
            .byte 0
+save_a:    .byte 0
 save_x:    .byte 0
 save_y:    .byte 0
 
 ; Receive buffer size: $6000 bytes => 24,576 bytes => 24K
 startof_rcv_buffer_addr:
            .res $6000
-endof_basic_addr:
