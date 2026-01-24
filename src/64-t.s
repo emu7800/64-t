@@ -61,7 +61,7 @@ disable_logoshift       = 8     ; PETSCII disable keyboard LOGO+SHIFT combinatio
 BS                      = 8     ; PETSCII/ASCII backspace
 LF                      = 10    ; PETSCII/ASCII linefeed
 CR                      = 13    ; PETSCII/ASCII carriage return
-toggle_charset          = 14    ; PETSCII toggle character se
+toggle_charset          = 14    ; PETSCII toggle character set
 cursor_down             = 17    ; PETSCII cursor down
 cursor_home             = 19    ; PETSCII cursor home
 delete                  = 20    ; PETSCII delete $14
@@ -417,7 +417,6 @@ continue_handle_char_from_kbd:
 @next13:
            cmp #CR
            beq output_char_to_modem_with_dpx_echo
-
            cmp #delete
            bne @next14
            lda #BS
