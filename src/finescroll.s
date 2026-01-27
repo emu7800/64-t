@@ -3,9 +3,7 @@
             .include "cbm_kernal.inc"
             .include "c64.inc"
 
-            .export finescroll_clearscreen
-            .export finescroll_settextcolor
-            .export finescroll_oneline
+            .export finescroll_funcs
 
 screen_copy_offset      = 22*40 - 3*$100
 
@@ -23,7 +21,12 @@ TBLX                    = $d6   ; Current cursor physical line number (0-24)
 HIBASE                  = $0288 ; Top page of screen memory
 
             .code
-finescroll_clearscreen:
+finescroll_funcs:
+            jmp clearscreen
+            jmp settextcolor
+            jmp scrolloneline
+
+clearscreen:
             sta save_a
             stx save_x
             sty save_y
@@ -51,12 +54,12 @@ finescroll_clearscreen:
             rts
 
 
-finescroll_settextcolor:
+settextcolor:
             sta textcolor
             rts
 
 
-finescroll_oneline:
+scrolloneline:
             sta save_a
             stx save_x
             sty save_y
