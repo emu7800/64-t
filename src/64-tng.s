@@ -1,5 +1,5 @@
 ;
-; '64 Terminal - Next Generation
+; '64 Terminal - Next Generation (NG)
 ;
 ; Telecommunications program for the Commodore 64
 ;
@@ -12,18 +12,6 @@
 ;
 ; Original by Dr. Jim Rothwell, Midwest Micro Inc., circa 1983
 ;
-;
-; Keys/functions:
-;
-; - F1/F2   RCV: Toggle receive buffering (off/on)
-; - F3/F4   DPX: Toggle half duplex (off/on)
-; - F6      Resets to the Accept Presets page, clears receive buffer
-; - F7      Review feature, copies receive buffer to screen. SPACE pauses, F7 again quits
-; - F8      Dumps receive buffer to printer, RUNSTOP quits printing
-; - RUNSTOP + RESTORE  Resets to the Accept Presets page
-; - F1 + RESTORE       Clears receive buffer
-;
-;
 ; Reverse engineering and Next Generation improvements
 ; by Mike Murphy (mike@emu7800.net), circa 2025.
 ; Intended for preservation and educational purposes only.
@@ -31,23 +19,18 @@
 ; To build, invoke 'make' in this directory without arguments.
 ;
 
-.setcpu "6502"
-.include "cbm_kernal.inc"
-.include "c64.inc"
+            .setcpu "6502"
 
-.import newmodem_start
-.import restore_key_flag
-.import __LOADADDR__
-.import __BSS_LOAD__
-.import __BSS_SIZE__
+            .include "cbm_kernal.inc"
+            .include "c64.inc"
 
-.if .def(__NTSC__)
-clock_freq              = 1022727   ; ntsc clock frequency
-.elseif .def(__PAL__)
-clock_freq              = 985248    ; pal clock frequency
-.else
-.error "Either __NTSC__ or __PAL__ must be defined."
-.endif
+            .import __LOADADDR__
+            .import __BSS_LOAD__
+            .import __BSS_SIZE__
+            .import finescroll_clearscreen
+            .import finescroll_settextcolor
+            .import finescroll_oneline
+
 
 stop_char               = 3     ; PETSCII stop
 BS                      = 8     ; ASCII backspace
@@ -74,23 +57,17 @@ F4                      = 138   ; PETSCII F4
 F6                      = 139   ; PETSCII F6
 F8                      = 140   ; PETSCII F8
 shift_return            = 141   ; PETSCII SHIFT+RETURN
-cursor_up               = 145   ; PETSCII cursor up
-clear_screen            = 147   ; PETSCII clear screen
+cls                     = 147   ; PETSCII clear screen
 insert                  = 148   ; PETSCII insert
 cursor_left             = 157   ; PETSCII cursor left
 underscore              = 164   ; PETSCII underscore
 
-dpx_flag                = $1f   ; bit7: 0=full, 1=half
-FREETOP                 = $33   ; Pointer to the Bottom of the String Text Storage Area
-FRESPC                  = $35   ; Temporary Pointer for Strings
-MEMSIZ1                 = $37   ; Pointer to the Highest Address Used by BASIC
-last_keycode            = $5d
+
 show_cursor_flag        = $5e   ; bit7: 0=dont show cursor, 1=show cursor
 serial_config           = $5f   ; Four (4) byte string for serial port configuration
-screen_select_flag      = $63   ; bit7: 0=low screen, 1=high screen
 rcv_flag                = $69   ; bit7: 0=off, 1=on
 rcv_buffer_ptr          = $6a
-charset_flag            = $70   ; bit7: 0=ascii, 1=petscii
+petscii_flag            = $70   ; bit7: 0=ascii, 1=petscii
 rcv_buffer_ptr_lo       = rcv_buffer_ptr
 rcv_buffer_ptr_hi       = rcv_buffer_ptr+1
 ptr                     = $6c
@@ -99,20 +76,14 @@ ptr_hi                  = ptr+1
 rcv_buffer_full_flag    = $6e   ; bit7: 0=not full, 1=full
 rcv_notadded_flag       = $6f   ; bit7: added to buffer since rcv on: 0=byte added, 1=byte not added
 NDX                     = $c6   ; Number of Characters in Keyboard Buffer (Queue)
-SFDX                    = $cb   ; Matrix Coordinate of Current Key Pressed
 PNTR                    = $d3   ; Cursor column on current logical line (0-79)
 TBLX                    = $d6   ; Current cursor physical line number (0-24)
-MEMSIZ2                 = $0283 ; Pointer: O.S. End of Memory
 COLOR                   = $0286 ; Current Foreground Color for Text (values 0-f)
-HIBASE                  = $0288 ; Top page of screen memory
-SHFLAG                  = $028d ; Flag: SHIFT/CTRL/LOGO Keypress bit0=SHIFT, bit1=LOGO, bit2=CTRL
-NMINV                   = $0318 ; Vector: Non-Maskable Interrupt
 
 
 sprite_data_base_addr   = $2000
 offset_rcv              = 0  ; RCF sprite
 offset_dpx              = 1  ; DPX sprite
-offset_fmt              = 2  ; FMT sprite
 offset_64t              = 3  ; 64T sprite
 offset_ermi             = 4  ; ERMI sprite
 offset_nal              = 5  ; NAL sprite
@@ -131,19 +102,13 @@ printer_file_no         = 4
 printer_device_no       = 4
 
 
-newmodem_setup          = newmodem_start
-newmodem_inable         = newmodem_start+3
-newmodem_disabl         = newmodem_start+6
-newmodem_setbaud        = newmodem_start+$f
-
-
 ; C64 kernal addresses not in cbm_kernal.inc
 USKINDIC                = $f6bc ; Update Stop key indicator, at memory address $0091, A and X registers used
 
-.segment "LOADADDR"
-.word   __LOADADDR__
+            .segment "LOADADDR"
+            .word   __LOADADDR__
 
-.segment "EXEHDR"
+            .segment "EXEHDR"
 startofexeheader:
            ; 0 SYSnnnn:REM  * * 64 TERMINAL NG * *
            .word endofbasicprogram
@@ -160,230 +125,137 @@ startofexeheader:
 endofbasicprogram:
            .byte 0, 0
 
-.code
+            .code
 start:
-           jsr clear_both_screens
+           jsr clear_screen
            lda #toggle_charset
            jsr CHROUT
            lda #enable_logoshift
            jsr CHROUT
            lda #%00010111          ; scroll 7, 24 rows
            sta VIC_CTRL1
+           lda #$80
+           sta color_flag
            jsr config_colors
            jsr output_cursor_home_and_cursor_down
            jsr output_space_and_cursor_left_to_screen
-           lda #0                  ; dont show cursor, set low screen
+           lda #0
            sta show_cursor_flag
-           sta screen_select_flag
            jsr print_title_message_to_screen
-
-           jsr newmodem_setup
 reset:
            jsr config_colors
            jsr init_sprites
-           lda #0
-           sta restore_key_flag
-           lda #$80                ; show cursor
+           lda #$80
            sta show_cursor_flag
+           sta rcv_notadded_flag
            jsr accept_presets_menu
            jsr init_rcv_buffer_ptr
            jsr CLALL
-           lda #$80
-           sta rcv_notadded_flag
            jsr open_modem_device
 main:
            jsr CLRCHN
 
-           jsr USKINDIC
-           jsr STOP
-           bne get_byte_from_keyboard
-
-           ; runstop already pressed, check for restore
-           bit restore_key_flag
-           bmi reset
-
 get_byte_from_keyboard:
            jsr GETIN
-           beq get_current_key_pressed
-           cmp stop_char
-           beq get_current_key_pressed
-
-           bit restore_key_flag
-           bpl handle_char_from_kbd
-
-           ; restore pressed
-           pha
-           jsr USKINDIC
-           jsr STOP
-           beq handle_runstop_restore
-           pla
-           jmp handle_char_from_kbd
-
-           ; runstop pressed
-handle_runstop_restore:
-           pla
-           jmp reset
-
-get_current_key_pressed:
-           ldx SFDX
-           cpx #64                ; no key pressed
-           beq go_get_char_from_modem
-           lda $eb81,x            ; keyboard decode table: keyboard1 unshifted
-           and #$1f
-           cmp last_keycode
-           beq go_get_char_from_modem
-           sta last_keycode
-           pha
-           jmp output_char_to_modem
-clear_last_keycode_then_get_char_from_modem:
-           lda #0
-           sta last_keycode
-
-go_get_char_from_modem:
+           bne :+
            jmp get_char_from_modem
-
-
-handle_char_from_kbd:
-           bit restore_key_flag
-           bpl @next
-           cmp #F1
-           bne @next
-           ; F1 + restore pressed
-           jsr init_rcv_buffer_ptr
-           lda #0
-           sta restore_key_flag
-           jmp main
-@next:
-           ldx #0
-           stx restore_key_flag
-           cmp #128
-           bcc continue_handle_char_from_kbd
+:          cmp #128
+           bcc @toggle_rcv
            cmp #129
-           beq @done
+           beq :+
            cmp #142
-           bcc continue_handle_char_from_kbd
-           cmp #clear_screen
-           beq continue_handle_char_from_kbd
+           bcc @toggle_rcv
+           cmp #cls
+           beq @toggle_rcv
            cmp #insert
-           beq continue_handle_char_from_kbd
+           beq @toggle_rcv
            cmp #160
-           bcs continue_handle_char_from_kbd
-@done:
-           jmp main
-
-
-continue_handle_char_from_kbd:
-           cmp #F1                ; turn off RCV
-           bne @next2
-           bit rcv_flag
-           bmi @test_rcv_notadded_flag
-           jmp main
-@test_rcv_notadded_flag:
-           bit rcv_notadded_flag
-           bmi @skip_cr
-           lda #CR
-           jsr output_char_to_screen
-@skip_cr:
-           lda #0                 ; clear
-           sta rcv_flag
-           jsr indicate_rcv_flag
-           jmp main
-@next2:
-           cmp #F2                ; turn on RCV
-           bne @next3
+           bcs @toggle_rcv
+:          jmp main
+@toggle_rcv:
+           cmp #F2
+           bne @toggle_dpx
            bit rcv_buffer_full_flag
-           bpl @rcv_buffer_not_full
+           bpl :+
            jmp main               ; dont bother since buffer full
-@rcv_buffer_not_full:
-           bit rcv_flag
-           bpl @set_rcv_flag
-           jmp main
+:          lda #$80
+           eor rcv_flag
+           sta rcv_flag
+           sta rcv_notadded_flag
 @set_rcv_flag:
            lda #CR
            jsr output_char_to_screen
-           lda #$80
-           sta rcv_flag
-           sta rcv_notadded_flag
            jsr indicate_rcv_flag
            jmp main
-@next3:
-           cmp #F3                ; turn on DPX
-           bne @next4
-           lda #0                 ; full
+@toggle_dpx:
+           cmp #F1
+           bne :+
+           lda #0
+           sta show_cursor_flag
+           ldy #<help_text
+           lda #>help_text
+           jsr output_string_to_screen
+           lda #$80
+           sta show_cursor_flag
+           jmp main
+:          cmp #F4
+           bne :+
+           lda #$80
+           eor dpx_flag
            sta dpx_flag
            jsr indicate_dpx_config
            jmp main
-@next4:
-           cmp #F4                ; turn off DPX
-           bne @next6
-           lda #$80               ; half
-           sta dpx_flag
-           jsr indicate_dpx_config
-           jmp main
-@next6:    cmp #F6                ; reset
-           bne @next7
+:          cmp #F6
+           bne :+
            jmp reset
-@next7:
-           cmp #F7
-           bne @next8
+:          cmp #F7
+           bne :+
            jmp dump_rcv_buffer_to_screen
-@next8:
-           cmp #F8
-           bne @next9
+:          cmp #F8
+           bne :+
            jmp dump_rcv_buffer_to_printer
-@next9:
-           cmp #insert
-           bne @next10
+:          cmp #insert
+           bne :+
            lda #DEL
            jmp output_char_to_modem_with_dpx_echo
-@next10:
-           cmp #$ba               ; unknown
-           bne @next11
+:          cmp #$ba               ; unknown
+           bne :+
            lda #$60               ; PETSCII horizontal line
            jmp output_char_to_modem_with_dpx_echo
-@next11:
-           cmp #clear_screen
-           bne @next12
+:          cmp #cls
+           bne :+
            jsr output_clear_and_cursor_down_to_screen
            jmp main
-@next12:
-           cmp #shift_return
-           bne @next13
+:          cmp #shift_return
+           bne :+
            and #$7f
-@next13:
-           cmp #CR
+:          cmp #CR
            beq output_char_to_modem_with_dpx_echo
            cmp #delete
-           bne @next14
-           bit charset_flag
+           bne :+
+           bit petscii_flag
            bmi @dont_convert_delete
            lda #BS
 @dont_convert_delete:
            jmp output_char_to_modem_with_dpx_echo
-@next14:
-           cmp #space
+:          cmp #space
            bcs output_char_to_modem_with_dpx_echo
            jmp main
 
 
 output_char_to_modem_with_dpx_echo:
            pha
-
            bit dpx_flag
            bpl output_char_to_modem
            jsr output_char_to_screen
-
            ; Expects character to output to be on top of the stack
 output_char_to_modem:
-           jsr CLRCHN
-           ldx #modem_file_no
-           jsr CHKOUT
            pla
            cmp #BS
            beq @done
            cmp #DEL
            beq @done
-           bit charset_flag
+           bit petscii_flag
            bmi @done
 @convert_to_ascii:
            and #$7f
@@ -391,22 +263,17 @@ output_char_to_modem:
            bcc @done
            cmp #zchar+1
            bcs @done
+           clc
            adc #32
 @done:
-           jsr CHROUT
+           jsr putchar_to_modem_device
 
 
 get_char_from_modem:
-           jsr CLRCHN
-           ldx #modem_file_no
-           jsr CHKIN
-           jsr GETIN
-           pha
-           jsr CLRCHN
-           pla
+           jsr getchar_from_modem_device
            beq @done
 @handle_char:
-           bit charset_flag
+           bit petscii_flag
            bmi @output_char_to_screen_then_done
 @handle_ascii_char:
            and #$7f
@@ -421,22 +288,25 @@ get_char_from_modem:
 @handle_printable_ascii_char:
            cmp #Achar
            bcc @handle_printable_ascii_char2
+           sec
            sbc #32
-           bne @output_char_to_screen_then_done
+           jmp @output_char_to_screen_then_done
 @handle_printable_ascii_char2:
            cmp #achar
            bcc @output_char_to_screen_then_done
            cmp #zchar+1
            bcs @output_char_to_screen_then_done
+           clc
            adc #32
 @output_char_to_screen_then_done:
+           cmp #0
+           beq @done
            jsr output_char_to_screen
 @done:
            jmp main
 
 
 dump_rcv_buffer_to_printer:
-           jsr newmodem_disabl
            lda #0
            sta rcv_flag
            sta rcv_notadded_flag
@@ -487,62 +357,25 @@ dump_rcv_buffer_to_printer:
            jsr CLRCHN
            lda #CR
            jsr output_char_to_screen
-           lda #modem_file_no
-           jsr CLOSE
-           jsr newmodem_inable
            jsr open_modem_device
            lda #%00010111         ; scroll 7, 24 rows
            sta VIC_CTRL1
            jmp main
 
 
-clear_both_screens:
-           lda #>hi_screen_addr
-           sta HIBASE
-           lda #clear_screen
-           jsr CHROUT
-           lda #>lo_screen_addr
-           sta HIBASE
-           lda #clear_screen
-           jsr CHROUT
-           lda #0                 ; select low screen
-           sta screen_select_flag
-           lda #(lo_screen_nybble << 4 | 6) ; 0001 0110  video matrix: 1*1k=$400, set low screen
-           sta VIC_VIDEO_ADR
-           lda #%00010111         ; scroll 7, 24 rows
-           sta VIC_CTRL1
-           lda #CR
-           jsr CHROUT
-           lda #0                 ; disable all sprites
-           sta VIC_SPR_ENA
-           rts
-
-
-delay_256x160:
-           ldx #160
-@loop_outer:
-           ldy #0
-@loop_inner:
-           dey
-           bne @loop_inner
-           dex
-           bne @loop_outer
-           rts
-
-
 output_char_to_screen:
            bit rcv_flag
            bpl @skip_buffering
-           jsr to_rcv_buffer
+           jsr add_to_rcv_buffer
 @skip_buffering:
            cmp #CR
            bne @is_not_cr
            jsr output_space_and_cursor_left_to_screen
 @is_cr:
            lda #CR
-           bne @chrout_and_fine_scroll_if_needed
+           bne @chrout_and_finescroll_ifneeded
 @is_not_cr:
-           bit charset_flag
+           bit petscii_flag
            bmi @is_petscii
            cmp #BS
            beq @is_backspace
@@ -554,154 +387,32 @@ output_char_to_screen:
            bne @is_not_backspace
 @is_backspace:
            jsr output_backspace_to_screen
-           jmp fine_scroll_one_line_if_needed
+           jmp finescroll_oneline_ifneeded
 @is_not_backspace:
            cmp #quote
-           bne @chrout_and_fine_scroll_if_needed
+           bne @chrout_and_finescroll_ifneeded
            jsr CHROUT
            lda #quote
            jsr CHROUT
            lda #cursor_left
-@chrout_and_fine_scroll_if_needed:
+@chrout_and_finescroll_ifneeded:
            jsr CHROUT
 
 
-fine_scroll_one_line_if_needed:
+finescroll_oneline_ifneeded:
            bit show_cursor_flag
-           bpl @next
+           bpl :+
            lda #underscore
            jsr CHROUT
            lda #cursor_left
            jsr CHROUT
-@next:
-           lda TBLX
-           cmp #23
-           bcs fine_scroll_one_line
-           rts
+:          jmp finescroll_oneline
 
 
-screen_copy_offset = 22*40 - 3*$100
-
-
-fine_scroll_one_line:
-           stx save_x
-           sty save_y
-
-           ; copy to opposite screen one line up
-
-           ldy #39
-           lda #space
-           bit screen_select_flag
-           bmi @loop1_lo
-
-           ; on low screen
-@loop1_hi:
-           sta hi_screen_addr+23*40,y
-           dey
-           bpl @loop1_hi
-
-           ldy #0
-@loop2_hi:
-           lda lo_screen_addr+2*40+screen_copy_offset+2*$100,y
-           sta hi_screen_addr+1*40+screen_copy_offset+2*$100,y
-           lda lo_screen_addr+2*40+screen_copy_offset+$100,y
-           sta hi_screen_addr+1*40+screen_copy_offset+$100,y
-           lda lo_screen_addr+2*40+screen_copy_offset,y
-           sta hi_screen_addr+1*40+screen_copy_offset,y
-
-           lda #1        ; white
-           sta $d800,y   ; color ram: set foreground color
-           sta $d900,y   ; color ram: set foreground color
-           sta $da00,y   ; color ram: set foreground color
-           sta $db00,y   ; color ram: set foreground color
-           iny
-           bne @loop2_hi
-
-           ldy #screen_copy_offset
-@loop3_hi:
-           lda lo_screen_addr+2*40,y
-           sta hi_screen_addr+1*40,y
-           dey
-           bpl @loop3_hi
-           bmi @do_fine_scroll
-
-           ; on high screen
-@loop1_lo:
-           sta lo_screen_addr+23*40,y
-           dey
-           bpl @loop1_lo
-
-           ldy #0
-
-@loop2_lo:
-           lda hi_screen_addr+2*40+screen_copy_offset+2*$100,y
-           sta lo_screen_addr+1*40+screen_copy_offset+2*$100,y
-           lda hi_screen_addr+2*40+screen_copy_offset+$100,y
-           sta lo_screen_addr+1*40+screen_copy_offset+$100,y
-           lda hi_screen_addr+2*40+screen_copy_offset,y
-           sta lo_screen_addr+1*40+screen_copy_offset,y
-           iny
-           bne @loop2_lo
-
-           ldy #screen_copy_offset
-@loop3_lo:
-           lda hi_screen_addr+2*40,y
-           sta lo_screen_addr+1*40,y
-           dey
-           bpl @loop3_lo
-
-@do_fine_scroll:
-           ldy #7
-@loop1:
-           bit VIC_CTRL1
-           bpl @loop1             ; wait until raster is off visible screen
-
-           dec VIC_CTRL1          ; fine scroll one line
-
-           ldx #200
-@delay:
-           dex
-           bne @delay
-
-           dey
-           bne @loop1
-
-@loop2:
-           bit VIC_CTRL1
-           bpl @loop2             ; wait until raster is off visible screen
-           ; swap screens to implement carriage return
-
-           bit screen_select_flag
-           bmi @swap_to_lo_screen
-
-@swap_to_hi_screen:
-           lda #(hi_screen_nybble << 4 | 6) ; 1010 0110  video matrix: 10*1k=$2800
-           sta VIC_VIDEO_ADR
-           sta screen_select_flag
-           lda #>hi_screen_addr
-           sta HIBASE
-           bne @done
-@swap_to_lo_screen:
-           lda #(lo_screen_nybble << 4 | 6) ; 0001 0110  video matrix: 1*1k=$400
-           sta VIC_VIDEO_ADR
-           lda #>lo_screen_addr
-           sta HIBASE
-           sta screen_select_flag
-@done:
-           lda #%00010111         ; scroll 7, 24 rows
-           sta VIC_CTRL1
-           ldy save_y
-           ldx save_x
-           lda #22
-           sta TBLX
-           lda #cursor_up
-           jsr CHROUT
-           lda #CR
-           jsr CHROUT
-           lda #underscore
-           jsr CHROUT
-           lda #cursor_left
-           jsr CHROUT
+clear_screen:
+           jsr finescroll_clearscreen
+           lda #0                 ; disable all sprites
+           sta VIC_SPR_ENA
            rts
 
 
@@ -709,8 +420,7 @@ output_space_and_cursor_left_to_screen:
            lda #space
            jsr CHROUT
            lda #cursor_left
-           jsr CHROUT
-           rts
+           jmp CHROUT
 
 
 output_backspace_to_screen:
@@ -783,35 +493,39 @@ print_title_message_to_screen:
            jsr delay_onethirdsec
            jsr delay_onethirdsec
            jsr delay_onethirdsec
-           jsr delay_onethirdsec
-           rts
+           jmp delay_onethirdsec
 
 
 accept_presets_menu:
            lda #0
            sta NDX
            sta rcv_flag
-           sta restore_key_flag
-           sta charset_flag
-           jsr clear_both_screens
-           jsr CLRCHN
+           sta petscii_flag
+           jsr clear_screen
            jsr output_clear_and_cursor_down_to_screen
            lda #0
            sta dpx_flag
-
+           lda #$80               ; set color
+           sta ntsc_flag          ; set NTSC
+           sta color_flag
            lda #0                 ; user specified baud, 8 bits, 1 stop bit
            sta serial_config
            lda #0
            sta serial_config+1    ; no parity
-
-           ldx #1                 ; 1200 baud
+           ldx #2                 ; 1200 baud
            stx baud_selection
-           lda baud_settings_lo,x
+           dex
+           txa
+           asl a
+           bit ntsc_flag
+           bmi :+
+           clc
+           adc baud_offset
+:          tax
+           lda baud,x
            sta serial_config+2
-           lda baud_settings_hi,x
+           lda baud+1,x
            sta serial_config+3
-           lda baud_selection
-           jsr newmodem_setbaud
 
 presets_start:
            ldy #<presets
@@ -824,13 +538,33 @@ presets_start:
            cmp #ychar
            beq @accept_y
            cmp #nchar
-           beq @baud_start
+           beq @tv_start
            bne @accept_q
 @accept_y:
            lda #ychar
            jsr output_char_to_screen
            jmp @done
-
+@tv_start:
+           jsr delay_onethirdsec
+           jsr output_clear_and_cursor_down_to_screen
+           ldy #<presets_tv
+           lda #>presets_tv
+           jsr output_string_to_screen
+@tv_q:
+           jsr GETIN
+           beq @tv_q
+           cmp #$31
+           bne @tv_n1
+           jsr output_char_to_screen
+           lda #$80
+           sta ntsc_flag
+           jmp @baud_start
+@tv_n1:
+           cmp #$32
+           bne @tv_q
+           jsr output_char_to_screen
+           lda #0
+           sta ntsc_flag
 @baud_start:
            jsr delay_onethirdsec
            jsr output_clear_and_cursor_down_to_screen
@@ -849,14 +583,19 @@ presets_start:
            pla
            and #7
            tax
-           dex
            stx baud_selection
-           lda baud_settings_lo,x
+           dex
+           txa
+           asl a
+           bit ntsc_flag
+           bmi :+
+           clc
+           adc baud_offset
+:          tax
+           lda baud,x
            sta serial_config+2
-           lda baud_settings_hi,x
+           lda baud+1,x
            sta serial_config+3
-           lda baud_selection
-           jsr newmodem_setbaud
 @set_8n1:
            lda serial_config
            and #%10011111         ; 8 bit
@@ -878,14 +617,35 @@ presets_start:
            bne @charset_n1
            jsr output_char_to_screen
            lda #0
-           sta charset_flag
-           beq @done
+           sta petscii_flag
+           beq @tvtype_start
 @charset_n1:
            cmp #$32
            bne @charset_q
            jsr output_char_to_screen
            lda #$80
-           sta charset_flag
+           sta petscii_flag
+@tvtype_start:
+           jsr delay_onethirdsec
+           jsr output_clear_and_cursor_down_to_screen
+           ldy #<presets_tvtype
+           lda #>presets_tvtype
+           jsr output_string_to_screen
+@tvtype_q:
+           jsr GETIN
+           beq @tvtype_q
+           cmp #$31
+           bne @tvtype_n1
+           jsr output_char_to_screen
+           lda #0                 ; set b/w
+           sta color_flag
+           beq @done
+@tvtype_n1:
+           cmp #$32
+           bne @tvtype_q
+           jsr output_char_to_screen
+           lda #$80               ; set color
+           sta color_flag
 @done:
            jsr delay_onethirdsec
            jsr output_clear_and_cursor_down_to_screen
@@ -893,24 +653,36 @@ presets_start:
            lda #$ff               ; turn on all sprites
            sta VIC_SPR_ENA
            jsr output_cursor_home_and_cursor_down
+           lda #0
+           sta show_cursor_flag
            ldy #<help_text
            lda #>help_text
            jsr output_string_to_screen
-           rts
+           lda #$80
+           sta show_cursor_flag
+
 
 
 config_colors:
+           bit color_flag
+           bmi @setblue
+           lda #0                 ; black
+           beq @setcolors
+@setblue:
            lda #6                 ; blue
+@setcolors:
            sta VIC_BORDERCOLOR
            sta VIC_BG_COLOR0
            lda #1                 ; white
            sta COLOR
+           jsr finescroll_settextcolor
            lda #$f                ; gray
            sta VIC_SPR0_COLOR
            sta VIC_SPR1_COLOR
            sta VIC_SPR2_COLOR
            sta VIC_SPR3_COLOR
            sta VIC_SPR4_COLOR
+           sta VIC_SPR5_COLOR
            rts
 
 
@@ -985,8 +757,23 @@ open_modem_device:
            jsr CHKOUT
            lda #0
            jsr CHROUT
+           jmp CLRCHN
+
+
+getchar_from_modem_device:
            jsr CLRCHN
-           rts
+           ldx #modem_file_no
+           jsr CHKIN
+           jmp GETIN
+
+
+putchar_to_modem_device:
+           pha
+           jsr CLRCHN
+           ldx #modem_file_no
+           jsr CHKOUT
+           pla
+           jmp CHROUT
 
 
 open_printer_device:
@@ -996,8 +783,7 @@ open_printer_device:
            ldx #printer_device_no
            ldy #7                 ; secondary address
            jsr SETLFS
-           jsr OPEN
-           rts
+           jmp OPEN
 
 
 init_rcv_buffer_ptr:
@@ -1011,12 +797,11 @@ init_rcv_buffer_ptr:
            sta rcv_flag
            sta rcv_notadded_flag
            sta rcv_buffer_full_flag
-           jsr indicate_rcv_flag
-           rts
+           jmp indicate_rcv_flag
 
 
 output_clear_and_cursor_down_to_screen:
-           lda #clear_screen
+           lda #cls
            jsr CHROUT
 
 output_cursor_home_and_cursor_down:
@@ -1024,15 +809,38 @@ output_cursor_home_and_cursor_down:
            jsr CHROUT
            lda #cursor_down
            jsr CHROUT
-           jmp fine_scroll_one_line_if_needed
+           jmp finescroll_oneline_ifneeded
 
-to_rcv_buffer:
+
+add_to_rcv_buffer:
            ldy #0
            sta save_a
            cmp #BS
            beq remove_from_rcv_buffer
            cmp #DEL
-           bne add_to_rcv_buffer
+           beq remove_from_rcv_buffer
+           bit rcv_buffer_full_flag
+           bmi @done
+           sty rcv_notadded_flag  ; y expected to be zero, so indicate 'added'
+           sta (rcv_buffer_ptr),y
+           inc rcv_buffer_ptr_lo
+           bne @done
+           inc rcv_buffer_ptr_hi
+           lda rcv_buffer_ptr_hi
+           cmp #>endof_rcv_buffer_addr
+           bcc @done
+           dec rcv_buffer_ptr_hi
+           dec rcv_buffer_ptr_lo
+           lda #$80               ; set buffer full
+           sta rcv_buffer_full_flag
+           lda #0
+           sta rcv_flag
+           jsr indicate_rcv_flag
+@done:
+           lda #0
+           sta (rcv_buffer_ptr),y
+           lda save_a
+           rts
 
 
 remove_from_rcv_buffer:
@@ -1047,31 +855,6 @@ remove_from_rcv_buffer:
 @decrement_then_done:
            dec rcv_buffer_ptr_lo
 @done:
-           lda save_a
-           rts
-
-
-add_to_rcv_buffer:
-           bit rcv_buffer_full_flag
-           bmi @done
-           sty rcv_notadded_flag  ; y expected to be zero, so indicate 'added'
-           sta (rcv_buffer_ptr),y
-           inc rcv_buffer_ptr_lo
-           bne @done
-           inc rcv_buffer_ptr_hi
-           lda rcv_buffer_ptr_hi
-           cmp MEMSIZ1+1
-           bcc @done
-           dec rcv_buffer_ptr_hi
-           dec rcv_buffer_ptr_lo
-           lda #$80               ; set buffer full
-           sta rcv_buffer_full_flag
-           lda #0
-           sta rcv_flag
-           jsr indicate_rcv_flag
-@done:
-           lda #0
-           sta (rcv_buffer_ptr),y
            lda save_a
            rts
 
@@ -1113,8 +896,6 @@ dump_rcv_buffer_to_screen:
 @done:
            lda #CR
            jsr output_char_to_screen
-           lda #modem_file_no
-           jsr CLOSE
            jsr open_modem_device
            jmp main
 
@@ -1243,11 +1024,7 @@ title_message:
 presets:
            .byte "***presets***"
            .byte $0d, $0d
-.if     .def(__NTSC__)
            .byte "tv: NTSC"
-.elseif .def(__PAL__)
-           .byte "tv: PAL"
-.endif
            .byte $0d
            .byte "baud: 1200"
            .byte $0d
@@ -1258,8 +1035,19 @@ presets:
            .byte "stopbits: 1"
            .byte $0d
            .byte "charset: ascii"
+           .byte $0d
+           .byte "tvtype: color"
            .byte $0d, $0d
            .byte "accept presets? "
+           .byte 0
+presets_tv:
+           .byte "***tv***"
+           .byte $0d, $0d
+           .byte "1. NTSC"
+           .byte $0d
+           .byte "2.  PAL"
+           .byte $0d, $0d
+           .byte "selection? "
            .byte 0
 presets_baud:
            .byte "***baud***"
@@ -1281,25 +1069,32 @@ presets_charset:
            .byte $0d, $0d
            .byte "selection? "
            .byte 0
+presets_tvtype:
+           .byte "***tvtype***"
+           .byte $0d, $0d
+           .byte "1.   b/w"
+           .byte $0d
+           .byte "2. color"
+           .byte $0d, $0d
+           .byte "selection? "
+           .byte 0
 help_text:
            .byte $0d
-           .byte "F1/F2  ReCeiVe buffer toggle          "
+           .byte "F1  This help text                    "
            .byte $0d
-           .byte "F3/F4  Half DuPleX toggle             "
+           .byte "F2  ReCeiVe buffer toggle             "
            .byte $0d
-           .byte "F6     Reset program                  "
+           .byte "F4  Half DuPleX toggle                "
            .byte $0d
-           .byte "F7     Review RCV buffer, space pauses"
+           .byte "F6  Reset program                     "
            .byte $0d
-           .byte "         F7 again stops review        "
+           .byte "F7  Review RCV buffer toggle,         "
            .byte $0d
-           .byte "F8     Dump RCV buffer to printer,    "
+           .byte "    SPACE pauses review               "
            .byte $0d
-           .byte "         RUNSTOP stops printing       "
+           .byte "F8  Dump RCV buffer to printer,       "
            .byte $0d
-           .byte "       RUNSTOP + RESTORE resets       "
-           .byte $0d
-           .byte "       F1 + RESTORE clears RCV buffer "
+           .byte "    RUNSTOP stops printing            "
            .byte $0d, $0d
            .byte 0
 
@@ -1308,28 +1103,36 @@ err_printer_offline_message:
            .byte "* * * ERROR: Printer Off-Line * * *"
            .byte $0d, 0
 
-baud_2400 = clock_freq/2400/2 - 100
-baud_1200 = clock_freq/1200/2 - 100
-baud_300  = clock_freq/ 300/2 - 100
+ntsc_clock_freq = 1022727
+pal_clock_freq  =  985248
 
-baud_settings_lo:
-           .byte <baud_2400     ; (1) 2400 baud lo
-           .byte <baud_1200     ; (2) 1200 baud lo
-           .byte <baud_300      ; (3)  300 baud lo
-baud_settings_hi:
-           .byte >baud_2400     ; (1) 2400 baud hi
-           .byte >baud_1200     ; (2) 1200 baud hi
-           .byte >baud_300      ; (3)  300 baud hi
+baud:
+ntsc_baud:
+            .word ntsc_clock_freq/2400/2 - 100  ; 2400
+            .word ntsc_clock_freq/1200/2 - 100  ; 1200
+            .word ntsc_clock_freq/ 300/2 - 100  ; 300
+pal_baud:
+            .word pal_clock_freq /2400/2 - 100  ; 2400
+            .word pal_clock_freq /1200/2 - 100  ; 1200
+            .word pal_clock_freq / 300/2 - 100  ; 300
 
-.bss
+baud_offset = pal_baud - ntsc_baud
+
+            .bss
 baud_selection:
-           .byte 0
+            .byte 0
 move_cursor_up_oneline_flag:
-           .byte 0
-save_a:    .byte 0
-save_x:    .byte 0
-save_y:    .byte 0
+            .byte 0
+save_a:     .byte 0
+
+ntsc_flag:
+            .byte 0  ; bit7: 0=PAL, 1=NTSC
+dpx_flag:
+            .byte 0  ; bit7: 0=full duplex, 1=half duplex
+color_flag:
+            .byte 0  ; bit7: 0=b/w, 1=color
 
 ; Receive buffer size: $6000 bytes => 24,576 bytes => 24K
 startof_rcv_buffer_addr:
-           .res $6000
+            .res $6000
+endof_rcv_buffer_addr:

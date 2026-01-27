@@ -39,7 +39,4 @@ After loading completes, enter `RUN`.
 
 The "Next Generation" version is still a work in progress.
 
-- weird issue where incoming characters are printed one per line
-- scroll effect needs to retain PETSCII colors
-- test the newmodem routines (secret tv options 3 and 4)
-- PETSCII art seems to trigger an extra newline
+- link in new modem routines
