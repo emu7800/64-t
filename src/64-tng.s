@@ -696,7 +696,9 @@ indicate_rcv_flag:
 
 setup_modem_device:
             ldx baud_selection
-            ldy ntsc_flag
+            lda ntsc_flag
+            eor #$80
+            tay
             jmp rs232_userport_funcs_setup
 
 
