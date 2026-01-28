@@ -27,9 +27,8 @@
             .import __LOADADDR__
             .import __BSS_LOAD__
             .import __BSS_SIZE__
-            .import finescroll_funcs
-            .import rs232_userport_funcs
-
+            .import finescroll_funcs_clearscreen, finescroll_funcs_settextcolor, finescroll_funcs_scrolloneline
+            .import rs232_userport_funcs_setup, rs232_userport_funcs_enable, rs232_userport_funcs_disable, rs232_userport_funcs_getchar, rs232_userport_funcs_putchar
 
 stop_char               = 3     ; PETSCII stop
 BS                      = 8     ; ASCII backspace
@@ -38,14 +37,15 @@ CR                      = 13    ; PETSCII/ASCII carriage return
 toggle_charset          = 14    ; PETSCII toggle character set
 cursor_down             = 17    ; PETSCII cursor down
 cursor_home             = 19    ; PETSCII cursor home
-delete                  = 20    ; PETSCII delete $14
+petscii_delete          = 20
 space                   = 32    ; PETSCII/ASCII space
 quote                   = 34    ; PETSCII/ASCII quote
-achar                   = 65    ; PETSCII a
-nchar                   = 78    ; PETSCII n
-ychar                   = 89    ; PETSCII y
-zchar                   = 90    ; PETSCII z
-Achar                   = 97    ; PETSCII A
+a_petscii               = 65
+n_petscii               = 78
+y_petscii               = 89
+z_petscii               = 90
+A_petscii               = 161
+Z_petscii               = 186
 DEL                     = 127   ; ASCII delete
 F1                      = 133   ; PETSCII F1
 F3                      = 134   ; PETSCII F3
@@ -63,7 +63,6 @@ underscore              = 164   ; PETSCII underscore
 
 
 show_cursor_flag        = $5e   ; bit7: 0=dont show cursor, 1=show cursor
-serial_config           = $5f   ; Four (4) byte string for serial port configuration
 rcv_flag                = $69   ; bit7: 0=off, 1=on
 rcv_buffer_ptr          = $6a
 petscii_flag            = $70   ; bit7: 0=ascii, 1=petscii
@@ -155,7 +154,7 @@ reset:
             jsr init_rcv_buffer_ptr
             jsr CLALL
             jsr setup_modem_device
-            jsr open_modem_device
+            jsr rs232_userport_funcs_enable
 main:
             jsr CLRCHN
 
@@ -231,7 +230,7 @@ get_byte_from_keyboard:
             and #$7f
 :           cmp #CR
             beq output_char_to_modem_with_dpx_echo
-            cmp #delete
+            cmp #petscii_delete
             bne :+
             bit petscii_flag
             bmi @dont_convert_delete
@@ -246,62 +245,56 @@ get_byte_from_keyboard:
 output_char_to_modem_with_dpx_echo:
             pha
             bit dpx_flag
-            bpl output_char_to_modem
+            bpl :+
             jsr output_char_to_screen
-            ; Expects character to output to be on top of the stack
+:           pla
 output_char_to_modem:
-            pla
+            bit petscii_flag
+            bmi @done2
             cmp #BS
             beq @done
             cmp #DEL
             beq @done
-            bit petscii_flag
-            bmi @done
-@convert_to_ascii:
-            and #$7f
-            cmp #achar
+            cmp #a_petscii
             bcc @done
-            cmp #zchar+1
-            bcs @done
-            clc
+            cmp #z_petscii+1
+            bcs :+
             adc #32
-@done:
-            jsr putchar_to_modem_device
+            bne @done
+:           cmp #A_petscii
+            bcc @done
+            cmp #Z_petscii+1
+            bcs @done
+            sbc #A_petscii - a_petscii
+@done:      and #$7f
+@done2:     jsr rs232_userport_funcs_putchar
 
 
 get_char_from_modem:
-            jsr getchar_from_modem_device
+            jsr rs232_userport_funcs_getchar
             cmp #0
-            beq @done
-@handle_char:
+            beq :+++
             bit petscii_flag
-            bmi @output_then_done
-@handle_ascii_char:
-            and #$7f
+            bmi :++
             cmp #BS
-            beq @output_then_done
+            beq :++
             cmp #DEL
-            beq @output_then_done
+            beq :++
             cmp #CR
-            beq @output_then_done
+            beq :++
             cmp #space
-            bcc @done
-@handle_printable_ascii_char:
-            cmp #Achar
+            bcc :++
+            cmp #A_petscii
             bcc :+
-            sec
             sbc #32
-            bne @output_then_done
-:           cmp #achar
-            bcc @output_then_done
-            cmp #zchar+1
-            bcs @output_then_done
-            clc
+            bne :++
+:           cmp #a_petscii
+            bcc :+
+            cmp #z_petscii+1
+            bcs :+
             adc #32
-@output_then_done:
-            jsr output_char_to_screen
-@done:
-            jmp main
+:           jsr output_char_to_screen
+:           jmp main
 
 
 dump_rcv_buffer_to_printer:
@@ -312,7 +305,7 @@ dump_rcv_buffer_to_printer:
             lda #CR
             jsr output_char_to_screen
             jsr CLRCHN
-            jsr close_modem_device
+            jsr rs232_userport_funcs_disable
             jsr open_printer_device
             ldx #printer_device_no
             jsr CHKOUT
@@ -356,7 +349,7 @@ dump_rcv_buffer_to_printer:
             jsr CLRCHN
             lda #CR
             jsr output_char_to_screen
-            jsr open_modem_device
+            jsr rs232_userport_funcs_enable
             lda #%00010111         ; scroll 7, 24 rows
             sta VIC_CTRL1
             jmp main
@@ -382,7 +375,7 @@ output_char_to_screen:
             beq @is_backspace
             bne @is_not_backspace
 @is_petscii:
-            cmp #delete
+            cmp #petscii_delete
             bne @is_not_backspace
 @is_backspace:
             jsr output_backspace_to_screen
@@ -405,11 +398,11 @@ finescroll_oneline_ifneeded:
             jsr CHROUT
             lda #cursor_left
             jsr CHROUT
-:           jmp finescroll_oneline
+:           jmp finescroll_funcs_scrolloneline
 
 
 clear_screen:
-            jsr finescroll_clearscreen
+            jsr finescroll_funcs_clearscreen
             lda #0                 ; disable all sprites
             sta VIC_SPR_ENA
             rts
@@ -500,31 +493,14 @@ accept_presets_menu:
             sta NDX
             sta rcv_flag
             sta petscii_flag
+            sta dpx_flag
+            lda #1                 ; 1200 baud
+            sta baud_selection
+            lda #$80
+            sta ntsc_flag
+            sta color_flag
             jsr clear_screen
             jsr output_clear_and_cursor_down_to_screen
-            lda #0
-            sta dpx_flag
-            lda #$80               ; set color
-            sta ntsc_flag          ; set NTSC
-            sta color_flag
-            lda #0                 ; user specified baud, 8 bits, 1 stop bit
-            sta serial_config
-            lda #0
-            sta serial_config+1    ; no parity
-            ldx #2                 ; 1200 baud
-            stx baud_selection
-            dex
-            txa
-            asl a
-            bit ntsc_flag
-            bmi :+
-            clc
-            adc baud_offset
-:           tax
-            lda baud,x
-            sta serial_config+2
-            lda baud+1,x
-            sta serial_config+3
 
 presets_start:
             ldy #<presets
@@ -534,13 +510,13 @@ presets_start:
             jsr GETIN
             cmp #CR
             beq @accept_y
-            cmp #ychar
+            cmp #y_petscii
             beq @accept_y
-            cmp #nchar
+            cmp #n_petscii
             beq @tv_start
             bne @accept_q
 @accept_y:
-            lda #ychar
+            lda #y_petscii
             jsr output_char_to_screen
             jmp @done
 @tv_start:
@@ -578,31 +554,12 @@ presets_start:
             cmp #$34
             bcs @baud_q
             pha
-            jsr output_char_to_screen
-            pla
             and #7
-            tax
-            stx baud_selection
-            dex
-            txa
-            asl a
-            bit ntsc_flag
-            bmi :+
-            clc
-            adc baud_offset
-:           tax
-            lda baud,x
-            sta serial_config+2
-            lda baud+1,x
-            sta serial_config+3
-@set_8n1:
-            lda serial_config
-            and #%10011111         ; 8 bit
-            and #%01111111         ; 1 stop bit
-            sta serial_config
-            lda serial_config+1
-            and #%00011111         ; no parity
-            sta serial_config+1
+            tay
+            dey
+            sty baud_selection
+            pla
+            jsr output_char_to_screen
 @charset_start:
             jsr delay_onethirdsec
             jsr output_clear_and_cursor_down_to_screen
@@ -672,7 +629,7 @@ config_colors:
             sta VIC_BG_COLOR0
             lda #white
             sta COLOR
-            jsr finescroll_settextcolor
+            jsr finescroll_funcs_settextcolor
             lda #gray
             sta VIC_SPR0_COLOR
             sta VIC_SPR1_COLOR
@@ -737,39 +694,10 @@ indicate_rcv_flag:
             rts
 
 
-finescroll_clearscreen:
-            jmp finescroll_funcs+0
-finescroll_settextcolor:
-            jmp finescroll_funcs+3
-finescroll_oneline:
-            jmp finescroll_funcs+6
-
-
 setup_modem_device:
-            ldx #0
-            ldy #0
-            lda baud_selection
-            cmp #1    ; 2400
-            bne :+
-            inx
-            inx
-            bne :++
-:           cmp #2    ; 1200
-            bne :+
-            inx
-:           bit ntsc_flag
-            bmi :+
-            iny
-            ; x: baud_rate: 0=300, 1=1200, 2=2400; y: 0=ntsc, 1=pal
-:           jmp rs232_userport_funcs+0
-open_modem_device:
-            jmp rs232_userport_funcs+3
-close_modem_device:
-            jmp rs232_userport_funcs+6
-getchar_from_modem_device:
-            jmp rs232_userport_funcs+9
-putchar_to_modem_device:
-            jmp rs232_userport_funcs+12
+            ldx baud_selection
+            ldy ntsc_flag
+            jmp rs232_userport_funcs_setup
 
 
 open_printer_device:
@@ -892,7 +820,6 @@ dump_rcv_buffer_to_screen:
 @done:
             lda #CR
             jsr output_char_to_screen
-            jsr open_modem_device
             jmp main
 
 
@@ -1046,11 +973,11 @@ presets_tv:
 presets_baud:
             .byte "***baud***"
             .byte $0d, $0d
-            .byte "1. 2400"
+            .byte "1.  300"
             .byte $0d
             .byte "2. 1200"
             .byte $0d
-            .byte "3.  300"
+            .byte "3. 2400"
             .byte $0d, $0d
             .byte "selection? "
             .byte 0
@@ -1097,28 +1024,14 @@ err_printer_offline_message:
             .byte "* * * ERROR: Printer Off-Line * * *"
             .byte $0d, 0
 
-ntsc_clock_freq = 1022727
-pal_clock_freq  =  985248
-
-baud:
-ntsc_baud:
-            .word ntsc_clock_freq/2400/2 - 100  ; 2400
-            .word ntsc_clock_freq/1200/2 - 100  ; 1200
-            .word ntsc_clock_freq/ 300/2 - 100  ; 300
-pal_baud:
-            .word pal_clock_freq /2400/2 - 100  ; 2400
-            .word pal_clock_freq /1200/2 - 100  ; 1200
-            .word pal_clock_freq / 300/2 - 100  ; 300
-
-baud_offset = pal_baud - ntsc_baud
 
             .bss
-baud_selection:
-            .byte 0
+
 move_cursor_up_oneline_flag:
             .byte 0
 save_a:     .byte 0
-
+baud_selection:
+            .byte 0
 ntsc_flag:
             .byte 0  ; bit7: 0=PAL, 1=NTSC
 dpx_flag:

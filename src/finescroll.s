@@ -3,28 +3,26 @@
             .include "cbm_kernal.inc"
             .include "c64.inc"
 
-            .export finescroll_funcs
+            .export finescroll_funcs_clearscreen   := clearscreen
+            .export finescroll_funcs_settextcolor  := settextcolor
+            .export finescroll_funcs_scrolloneline := scrolloneline
 
-screen_copy_offset      = 22*40 - 3*$100
+screen_copy_offset = 22*40 - 3*$100
 
-lo_screen_nybble        = $1
-hi_screen_nybble        = $a
-lo_screen_addr          = $0400*lo_screen_nybble ; = $0400 video matrix addr
-hi_screen_addr          = $0400*hi_screen_nybble ; = $2800 video matrix addr
+lo_screen_nybble = $1
+hi_screen_nybble = $a
+lo_screen_addr   = $0400*lo_screen_nybble ; = $0400 video matrix addr
+hi_screen_addr   = $0400*hi_screen_nybble ; = $2800 video matrix addr
 
-CR                      = 13    ; PETSCII/ASCII carriage return
-space                   = 32    ; PETSCII/ASCII space
-cursor_up               = 145   ; PETSCII cursor up
-cls                     = 147   ; PETSCII clear screen
+CR        = 13    ; PETSCII/ASCII carriage return
+space     = 32    ; PETSCII/ASCII space
+cursor_up = 145   ; PETSCII cursor up
+cls       = 147   ; PETSCII clear screen
 
-TBLX                    = $d6   ; Current cursor physical line number (0-24)
-HIBASE                  = $0288 ; Top page of screen memory
+TBLX   = $d6   ; Current cursor physical line number (0-24)
+HIBASE = $0288 ; Top page of screen memory
 
             .code
-finescroll_funcs:
-            jmp clearscreen
-            jmp settextcolor
-            jmp scrolloneline
 
 clearscreen:
             sta save_a
@@ -53,11 +51,9 @@ clearscreen:
             lda save_a
             rts
 
-
 settextcolor:
             sta textcolor
             rts
-
 
 scrolloneline:
             sta save_a
@@ -176,6 +172,7 @@ scrolloneline:
             rts
 
             .bss
+
 save_a:     .byte 0
 save_x:     .byte 0
 save_y:     .byte 0

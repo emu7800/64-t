@@ -39,4 +39,5 @@ After loading completes, enter `RUN`.
 
 The "Next Generation" version is still a work in progress.
 
+- correct ASCII mode in 64-tng
 - link in new modem routines

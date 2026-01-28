@@ -5,7 +5,11 @@
 ;
             .setcpu "6502"
 
-            .export rs232_userport_funcs
+            .export rs232_userport_funcs_setup   := setup
+            .export rs232_userport_funcs_enable  := enable
+            .export rs232_userport_funcs_disable := disable
+            .export rs232_userport_funcs_getchar := getxfer
+            .export rs232_userport_funcs_putchar := putxfer
 
 bitci   = $a8     ; RS-232 Input bit count
 ridata  = $aa     ; RS-232 Input byte buffer
@@ -47,14 +51,7 @@ nmi     = nmi128
 
             .code
 
-rs232_userport_funcs:
-            jmp setup   ; x: baud_rate: 0=300, 1=1200, 2=2400; y: 0=ntsc, 1=pal
-            jmp enable  ; enables RS-232 input function without selecting device #2 for input (do after disk, tape, REU operation)
-            jmp disable ; disables RS-232 input function without selecting another device for input (do before disk, tape, REU operation)
-            jmp getxfer ; get char from RS-232 recv buffer regardless of current input device (carry set if buffer empty)
-            jmp putxfer ; put char to RS-232 send buffer regardless of current output device
-
-setup:
+setup:      ; x: baud_rate: 0=300, 1=1200, 2=2400; y: 0=ntsc, ~0=pal
             sei
             jsr setbaud
             lda #<nmi
@@ -197,7 +194,7 @@ chktxd:
             lda #1
             bne switch
 
-disable:
+disable:    ; disables RS-232 input function without selecting another device for input (do before disk, tape, REU operation)
             pha
 :           lda isbyte
             bne :-
@@ -210,7 +207,7 @@ disable:
             pla
             rts
 
-enable:
+enable:     ; enables RS-232 input function without selecting device #2 for input (do after disk, tape, REU operation)
             lda enable
             and #$12
             beq :+
@@ -232,7 +229,7 @@ change:
             bne :-
             rts
 
-getxfer:
+getxfer:    ; get char from RS-232 recv buffer regardless of current input device (carry set if buffer empty)
             jsr $f04f      ; KERNAL code to set up user port
             ldx ridbs      ; head index to receive buffer
             cpx ridbe      ; tail index to receive buffer
@@ -244,7 +241,7 @@ getxfer:
             pla
 :           rts
 
-putxfer:
+putxfer:    ; put char to RS-232 send buffer regardless of current output device
             pha
             stx save_x
             sty save_y
