@@ -1072,7 +1072,7 @@ accept_presets_menu:
             tax
             lda serial_config
             and #%01111111
-            ora stopbit_settings,X
+            ora stopbit_settings,x
             sta serial_config
             jsr delay_onethirdsec
             jsr delay_onethirdsec
