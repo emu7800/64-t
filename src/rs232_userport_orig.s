@@ -1,3 +1,5 @@
+; Stock C64 NTSC/PAL RS-232 userport driver
+
             .setcpu "6502"
 
             .include "cbm_kernal.inc"
@@ -17,13 +19,13 @@ setup:      ; x: baud_rate: 0=300, 1=1200, 2=2400; y: 0=ntsc, 0~=pal
             txa
             asl a
             cpy #0
-            beq :+
+            beq :+       ; 0=NTSC, ~0=PAL
             clc
             adc #baud_offset
-:           tax
-            lda baud,x
+:           tay
+            lda baud,y
             sta serial_config+2
-            lda baud+1,x
+            lda baud+1,y
             sta serial_config+3
             rts
 

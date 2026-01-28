@@ -1,3 +1,5 @@
+; Replacement C64 NTSC/PAL RS-232 userport driver
+
 ; Based upon: newmodem.s - Towards 2400 - RS232 revisited by George Hug
 ; Transactor Magazine, volume 9, issue3, February 1989
 ; https://archive.org/details/transactor-magazines-v9-i03/page/n63/mode/2up
@@ -67,7 +69,7 @@ setbaud:
             cpy #0
             beq :+       ; 0=NTSC, ~0=PAL
             clc
-            adc boffset
+            adc #boffset
 :           tay
             lda bloc,y
             sta xmitlo
@@ -148,7 +150,6 @@ nmion:
             ror ridata     ; input byte
             dec bitci      ; input bits
             bne txd
-
             lda ridata     ; input byte
             ldx ridbe      ; tail index to receive buffer
             sta ribuf,x    ; and store it
@@ -282,6 +283,6 @@ bpal:
             .word 3285,  814, 406 ; PAL full bit times
 boffset = bpal - bntsc
 
-            .bss
+            .data
 isbyte:
             .byte 0

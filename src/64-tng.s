@@ -44,8 +44,8 @@ a_petscii               = 65
 n_petscii               = 78
 y_petscii               = 89
 z_petscii               = 90
-A_petscii               = 161
-Z_petscii               = 186
+A_petscii               = 97
+Z_petscii               = 122
 DEL                     = 127   ; ASCII delete
 F1                      = 133   ; PETSCII F1
 F3                      = 134   ; PETSCII F3
@@ -195,6 +195,7 @@ get_byte_from_keyboard:
             bne :+
             lda #0
             sta show_cursor_flag
+            jsr config_colors      ; recover colors if needed
             ldy #<help_text
             lda #>help_text
             jsr output_string_to_screen
@@ -249,17 +250,23 @@ output_char_to_modem_with_dpx_echo:
             jsr output_char_to_screen
 :           pla
 output_char_to_modem:
+            cmp #0
+            beq get_char_from_modem
             bit petscii_flag
             bmi @done2
             cmp #BS
             beq @done
             cmp #DEL
             beq @done
-            cmp #a_petscii
+            cmp #petscii_delete
+            bne :+
+            lda #BS
+            bne @done
+:           cmp #a_petscii
             bcc @done
             cmp #z_petscii+1
             bcs :+
-            adc #32
+            adc #A_petscii - a_petscii
             bne @done
 :           cmp #A_petscii
             bcc @done
@@ -273,28 +280,28 @@ output_char_to_modem:
 get_char_from_modem:
             jsr rs232_userport_funcs_getchar
             cmp #0
-            beq :+++
+            beq @done2
             bit petscii_flag
-            bmi :++
-            cmp #BS
-            beq :++
-            cmp #DEL
-            beq :++
+            bmi @done
             cmp #CR
-            beq :++
-            cmp #space
-            bcc :++
-            cmp #A_petscii
+            beq @done
+            cmp #BS
+            bne :+
+            cmp #DEL
+            bne :+
+            lda #petscii_delete
+            bne @done
+:           cmp #A_petscii
             bcc :+
-            sbc #32
-            bne :++
+            sbc #A_petscii - a_petscii
+            bne @done
 :           cmp #a_petscii
-            bcc :+
+            bcc @done
             cmp #z_petscii+1
-            bcs :+
-            adc #32
-:           jsr output_char_to_screen
-:           jmp main
+            bcs @done
+            adc #A_petscii - a_petscii
+@done:      jsr output_char_to_screen
+@done2:     jmp main
 
 
 dump_rcv_buffer_to_printer:

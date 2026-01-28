@@ -9,8 +9,8 @@ The original program was written by Jim Rothwell at Midwest Micro Inc., circa 19
 
 <img src="images/1.jpg" width="300"/><img src="images/3.jpg" height="227" /><img src="images/2.jpg" height="227"/>
 
-Eventually, much better freely available terminal programs became available, so I moved on. Nevertheless, the smooth scrolling feature was always fascinating and I could never figure out
-how it was done.
+Eventually, much better freely available terminal programs became available, so I moved on.
+Nevertheless, the smooth scrolling feature was always fascinating and I could never figure out how it was done.
 
 I have long had the original cassette but could never find the executable online.
 So forty years later, I figured I probably should reverse engineer this and finally solve the
@@ -34,10 +34,3 @@ requiring Linux with cc65 built and located at $CC65_HOME and available in the $
 To run on your Commodore 64, simply enter `LOAD"64-t.prg",8` or `LOAD"64-tng.prg",8`
 at the `READY` prompt.
 After loading completes, enter `RUN`.
-
-### TODO
-
-The "Next Generation" version is still a work in progress.
-
-- correct ASCII mode in 64-tng
-- link in new modem routines
