@@ -32,9 +32,7 @@
 
 stop_char               = 3     ; PETSCII stop
 BS                      = 8     ; ASCII backspace
-enable_logoshift        = 9     ; PETSCII enable keyboard LOGO+SHIFT combination
 CR                      = 13    ; PETSCII/ASCII carriage return
-toggle_charset          = 14    ; PETSCII toggle character set
 cursor_down             = 17    ; PETSCII cursor down
 cursor_home             = 19    ; PETSCII cursor home
 petscii_delete          = 20
@@ -130,10 +128,6 @@ endofbasicprogram:
             .code
 start:
             jsr clear_screen
-            lda #toggle_charset
-            jsr CHROUT
-            lda #enable_logoshift
-            jsr CHROUT
             lda #%00010111          ; scroll 7, 24 rows
             sta VIC_CTRL1
             lda #$80
@@ -283,6 +277,7 @@ get_char_from_modem:
             beq @done2
             bit petscii_flag
             bmi @done
+            and #$7f
             cmp #CR
             beq @done
             cmp #BS
@@ -637,6 +632,10 @@ config_colors:
             lda #white
             sta COLOR
             jsr finescroll_funcs_settextcolor
+            lda #0
+            sta $291               ; Commodore+SHIFT: bit7: 0=enable 1=disable
+            lda #$17
+            sta VIC_VIDEO_ADR      ; Set PETSCII charset to lower/upper
             lda #gray
             sta VIC_SPR0_COLOR
             sta VIC_SPR1_COLOR
