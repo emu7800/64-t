@@ -286,7 +286,9 @@ get_char_from_modem:
             bne :+
             lda #petscii_delete
             bne @done
-:           cmp #A_petscii
+:           cmp #space
+            bcc @done2
+            cmp #A_petscii
             bcc :+
             sbc #A_petscii - a_petscii
             bne @done
